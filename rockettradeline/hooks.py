@@ -4,6 +4,7 @@ app_publisher = "philmaxsnr@gmail.com"
 app_description = "rocket tradeline"
 app_email = "info@rockettradeline.com"
 app_license = "mit"
+app_logo_url   = "/assets/rockettradeline/logo.png"
 
 # Apps
 # ------------------
@@ -11,15 +12,21 @@ app_license = "mit"
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "rockettradeline",
-# 		"logo": "/assets/rockettradeline/logo.png",
-# 		"title": "Rockettradeline",
-# 		"route": "/rockettradeline",
-# 		"has_permission": "rockettradeline.api.permission.has_app_permission"
-# 	}
-# ]
+add_to_apps_screen = [
+	{
+		"name": "rockettradeline",
+		"logo": "/assets/rockettradeline/logo.png",
+		"title": "Rockettradeline",
+		# "route": "/form",
+		# "has_permission": "rockettradeline.api.permission.has_app_permission"
+	}
+]
+
+homepage = "form"
+website_context = {
+    "favicon":     "/assets/rockettradeline/logo.png",
+    "splash_image": "/assets/rockettradeline/logo.png"
+}
 
 # Includes in <head>
 # ------------------
@@ -83,7 +90,7 @@ app_license = "mit"
 # ------------
 
 # before_install = "rockettradeline.install.before_install"
-# after_install = "rockettradeline.install.after_install"
+after_install = "rockettradeline.setup.after_install"
 
 # Uninstallation
 # ------------
@@ -241,4 +248,16 @@ app_license = "mit"
 # default_log_clearing_doctypes = {
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
+
+# Website routes
+website_route_rules = [
+    {"from_route": "/api/tradeline/<path:path>", "to_route": "api/tradeline"}
+]
+
+# CORS settings for API
+website_context = {
+    "favicon": "/assets/rockettradeline/logo.png",
+    "splash_image": "/assets/rockettradeline/logo.png"
+}
+
 

@@ -1,0 +1,158 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:{#####}",
+ "creation": "2025-06-02 20:36:05.947493",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "bank",
+  "age_year",
+  "age_month",
+  "credit_limit",
+  "closing_date",
+  "price",
+  "card_holder",
+  "mailing_address",
+  "credit_utilization_rate",
+  "status",
+  "column_break_iujj",
+  "max_spots",
+  "purchased_spots",
+  "remaining_spots",
+  "item",
+  "balance"
+ ],
+ "fields": [
+  {
+   "fieldname": "bank",
+   "fieldtype": "Link",
+   "label": "Bank",
+   "options": "Tradeline Bank",
+   "reqd": 1
+  },
+  {
+   "fieldname": "closing_date",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Closing Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "price",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Price",
+   "precision": "3",
+   "reqd": 1
+  },
+  {
+   "fieldname": "max_spots",
+   "fieldtype": "Int",
+   "label": "Max Spots",
+   "reqd": 1
+  },
+  {
+   "fieldname": "remaining_spots",
+   "fieldtype": "Int",
+   "label": "Remaining Spots",
+   "reqd": 1
+  },
+  {
+   "fieldname": "mailing_address",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Mailing Address",
+   "options": "Mailing Address",
+   "reqd": 1
+  },
+  {
+   "fieldname": "credit_utilization_rate",
+   "fieldtype": "Percent",
+   "label": "Credit Utilization Rate"
+  },
+  {
+   "fieldname": "card_holder",
+   "fieldtype": "Link",
+   "label": "Card Holder",
+   "options": "Card Holder",
+   "reqd": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Active\nInActive",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_iujj",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "purchased_spots",
+   "fieldtype": "Int",
+   "label": "Purchased Spots",
+   "reqd": 1
+  },
+  {
+   "fieldname": "item",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Item"
+  },
+  {
+   "fieldname": "credit_limit",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Credit Limit",
+   "reqd": 1
+  },
+  {
+   "fieldname": "balance",
+   "fieldtype": "Currency",
+   "label": "Balance"
+  },
+  {
+   "fieldname": "age_month",
+   "fieldtype": "Int",
+   "label": "Month"
+  },
+  {
+   "fieldname": "age_year",
+   "fieldtype": "Int",
+   "label": "Year",
+   "reqd": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-06-10 13:33:39.084218",
+ "modified_by": "Administrator",
+ "module": "Rockettradeline",
+ "name": "Tradeline",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "bank"
+}

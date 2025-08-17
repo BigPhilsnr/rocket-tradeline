@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rocket Tradeline API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .api-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .api-section h3 {
+            color: #2c3e50;
+            margin-top: 0;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input, textarea, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        .response {
+            margin-top: 15px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            border-left: 4px solid #3498db;
+        }
+        .response.success {
+            border-left-color: #27ae60;
+            background-color: #d4edda;
+        }
+        .response.error {
+            border-left-color: #e74c3c;
+            background-color: #f8d7da;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Rocket Tradeline API Test</h1>
+        
+        <!-- Authentication Section -->
+        <div class="api-section">
+            <h3>Authentication</h3>
+            
+            <div class="form-group">
+                <label for="loginEmail">Email:</label>
+                <input type="email" id="loginEmail" placeholder="Enter your email">
+            </div>
+            
+            <div class="form-group">
+                <label for="loginPassword">Password:</label>
+                <input type="password" id="loginPassword" placeholder="Enter your password">
+            </div>
+            
+            <button onclick="testLogin()">Login</button>
+            <button onclick="testSignup()">Sign Up</button>
+            <button onclick="testGetCurrentUser()">Get Current User</button>
+            <button onclick="testLogout()">Logout</button>
+            
+            <div id="authResponse" class="response" style="display:none;">
+                <pre id="authResponseText"></pre>
+            </div>
+        </div>
+        
+        <!-- Tradeline Section -->
+        <div class="api-section">
+            <h3>Tradelines</h3>
+            
+            <div class="form-group">
+                <label for="tradelineSearch">Search:</label>
+                <input type="text" id="tradelineSearch" placeholder="Search tradelines">
+            </div>
+            
+            <div class="form-group">
+                <label for="tradelineLimit">Limit:</label>
+                <input type="number" id="tradelineLimit" value="10" min="1" max="100">
+            </div>
+            
+            <button onclick="testGetTradelines()">Get Tradelines</button>
+            <button onclick="testGetBanks()">Get Banks</button>
+            
+            <div id="tradelineResponse" class="response" style="display:none;">
+                <pre id="tradelineResponseText"></pre>
+            </div>
+        </div>
+        
+        <!-- Website Content Section -->
+        <div class="api-section">
+            <h3>Website Content</h3>
+            
+            <button onclick="testGetWebsiteSettings()">Get Website Settings</button>
+            <button onclick="testGetFAQs()">Get FAQs</button>
+            <button onclick="testGetTestimonials()">Get Testimonials</button>
+            <button onclick="testGetPageContent()">Get Page Content</button>
+            
+            <div id="websiteResponse" class="response" style="display:none;">
+                <pre id="websiteResponseText"></pre>
+            </div>
+        </div>
+        
+        <!-- Create Tradeline Section -->
+        <div class="api-section">
+            <h3>Create Tradeline (Admin Only)</h3>
+            
+            <div class="form-group">
+                <label for="bankSelect">Bank:</label>
+                <select id="bankSelect">
+                    <option value="">Select a bank</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="ageYear">Age (Years):</label>
+                <input type="number" id="ageYear" min="1" max="30">
+            </div>
+            
+            <div class="form-group">
+                <label for="creditLimit">Credit Limit:</label>
+                <input type="number" id="creditLimit" min="1000" step="1000">
+            </div>
+            
+            <div class="form-group">
+                <label for="price">Price:</label>
+                <input type="number" id="price" min="50" step="10">
+            </div>
+            
+            <div class="form-group">
+                <label for="maxSpots">Max Spots:</label>
+                <input type="number" id="maxSpots" min="1" max="10">
+            </div>
+            
+            <div class="form-group">
+                <label for="closingDate">Closing Date:</label>
+                <input type="number" id="closingDate" min="1" max="31">
+            </div>
+            
+            <button onclick="testCreateTradeline()">Create Tradeline</button>
+            
+            <div id="createResponse" class="response" style="display:none;">
+                <pre id="createResponseText"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'https://rockettradline.com/api/method/rockettradeline.api';
+        
+        async function makeAPICall(endpoint, method = 'GET', data = null) {
+            const config = {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Frappe-CSRF-Token': getCookie('csrf_token')
+                }
+            };
+            
+            if (data) {
+                config.body = JSON.stringify(data);
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`, config);
+                const result = await response.json();
+                return result;
+            } catch (error) {
+                return {
+                    success: false,
+                    message: error.message
+                };
+            }
+        }
+        
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+        
+        function showResponse(responseDiv, textDiv, data) {
+            const responseEl = document.getElementById(responseDiv);
+            const textEl = document.getElementById(textDiv);
+            
+            textEl.textContent = JSON.stringify(data, null, 2);
+            responseEl.style.display = 'block';
+            
+            if (data.success) {
+                responseEl.className = 'response success';
+            } else {
+                responseEl.className = 'response error';
+            }
+        }
+        
+        // Authentication functions
+        async function testLogin() {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            const result = await makeAPICall('.auth.login', 'POST', {
+                usr: email,
+                pwd: password
+            });
+            
+            showResponse('authResponse', 'authResponseText', result);
+        }
+        
+        async function testSignup() {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            const result = await makeAPICall('.auth.sign_up', 'POST', {
+                email: email,
+                full_name: email.split('@')[0],
+                password: password
+            });
+            
+            showResponse('authResponse', 'authResponseText', result);
+        }
+        
+        async function testGetCurrentUser() {
+            const result = await makeAPICall('.auth.get_current_user');
+            showResponse('authResponse', 'authResponseText', result);
+        }
+        
+        async function testLogout() {
+            const result = await makeAPICall('.auth.logout', 'POST');
+            showResponse('authResponse', 'authResponseText', result);
+        }
+        
+        // Tradeline functions
+        async function testGetTradelines() {
+            const search = document.getElementById('tradelineSearch').value;
+            const limit = document.getElementById('tradelineLimit').value;
+            
+            let url = '.tradeline.get_tradelines';
+            const params = new URLSearchParams();
+            
+            if (search) params.append('search', search);
+            if (limit) params.append('limit', limit);
+            
+            if (params.toString()) {
+                url += '?' + params.toString();
+            }
+            
+            const result = await makeAPICall(url);
+            showResponse('tradelineResponse', 'tradelineResponseText', result);
+        }
+        
+        async function testGetBanks() {
+            const result = await makeAPICall('.tradeline.get_banks');
+            showResponse('tradelineResponse', 'tradelineResponseText', result);
+            
+            // Populate bank select
+            if (result.success && result.banks) {
+                const bankSelect = document.getElementById('bankSelect');
+                bankSelect.innerHTML = '<option value="">Select a bank</option>';
+                
+                result.banks.forEach(bank => {
+                    const option = document.createElement('option');
+                    option.value = bank.name;
+                    option.textContent = bank.bank_name;
+                    bankSelect.appendChild(option);
+                });
+            }
+        }
+        
+        async function testCreateTradeline() {
+            const data = {
+                bank: document.getElementById('bankSelect').value,
+                age_year: parseInt(document.getElementById('ageYear').value),
+                credit_limit: parseInt(document.getElementById('creditLimit').value),
+                price: parseFloat(document.getElementById('price').value),
+                max_spots: parseInt(document.getElementById('maxSpots').value),
+                closing_date: parseInt(document.getElementById('closingDate').value),
+                card_holder: 'John Doe',  // This would need to be selected from existing card holders
+                mailing_address: 'Sample Address'  // This would need to be selected from existing addresses
+            };
+            
+            const result = await makeAPICall('.tradeline.create_tradeline', 'POST', data);
+            showResponse('createResponse', 'createResponseText', result);
+        }
+        
+        // Website content functions
+        async function testGetWebsiteSettings() {
+            const result = await makeAPICall('.website.get_website_settings');
+            showResponse('websiteResponse', 'websiteResponseText', result);
+        }
+        
+        async function testGetFAQs() {
+            const result = await makeAPICall('.website.get_faqs');
+            showResponse('websiteResponse', 'websiteResponseText', result);
+        }
+        
+        async function testGetTestimonials() {
+            const result = await makeAPICall('.website.get_testimonials');
+            showResponse('websiteResponse', 'websiteResponseText', result);
+        }
+        
+        async function testGetPageContent() {
+            const result = await makeAPICall('.website.get_page_content');
+            showResponse('websiteResponse', 'websiteResponseText', result);
+        }
+        
+        // Load banks on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            testGetBanks();
+        });
+    </script>
+</body>
+</html>

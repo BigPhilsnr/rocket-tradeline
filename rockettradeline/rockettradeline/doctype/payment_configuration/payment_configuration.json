@@ -1,0 +1,276 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:payment_method",
+ "creation": "2025-08-16 14:00:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "payment_method",
+  "display_name",
+  "is_active",
+  "column_break_3",
+  "payment_type",
+  "icon",
+  "sort_order",
+  "section_break_7",
+  "api_configuration",
+  "api_key",
+  "api_secret",
+  "webhook_url",
+  "column_break_12",
+  "sandbox_mode",
+  "sandbox_api_key",
+  "sandbox_api_secret",
+  "sandbox_webhook_url",
+  "section_break_16",
+  "account_details",
+  "account_email",
+  "phone_number",
+  "account_id",
+  "column_break_20",
+  "qr_code",
+  "payment_link",
+  "additional_config",
+  "section_break_24",
+  "description",
+  "instructions",
+  "fees_and_limits",
+  "min_amount",
+  "max_amount",
+  "fixed_fee",
+  "percentage_fee"
+ ],
+ "fields": [
+  {
+   "fieldname": "payment_method",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Payment Method",
+   "options": "Apple Cash\nZelle\nCashApp\nVenmo\nPayPal\nCredit Card\nBank Transfer\nCryptocurrency",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "display_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Display Name",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Active"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "payment_type",
+   "fieldtype": "Select",
+   "label": "Payment Type",
+   "options": "Instant\nPeer-to-Peer\nBank Transfer\nDigital Wallet\nCredit/Debit",
+   "reqd": 1
+  },
+  {
+   "fieldname": "icon",
+   "fieldtype": "Data",
+   "label": "Icon CSS Class"
+  },
+  {
+   "default": "10",
+   "fieldname": "sort_order",
+   "fieldtype": "Int",
+   "label": "Sort Order"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_7",
+   "fieldtype": "Section Break",
+   "label": "API Configuration"
+  },
+  {
+   "depends_on": "eval:doc.payment_method == 'PayPal'",
+   "fieldname": "api_configuration",
+   "fieldtype": "Section Break",
+   "label": "API Settings"
+  },
+  {
+   "fieldname": "api_key",
+   "fieldtype": "Data",
+   "label": "API Key"
+  },
+  {
+   "fieldname": "api_secret",
+   "fieldtype": "Password",
+   "label": "API Secret"
+  },
+  {
+   "fieldname": "webhook_url",
+   "fieldtype": "Data",
+   "label": "Webhook URL"
+  },
+  {
+   "fieldname": "column_break_12",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "sandbox_mode",
+   "fieldtype": "Check",
+   "label": "Sandbox Mode"
+  },
+  {
+   "depends_on": "sandbox_mode",
+   "fieldname": "sandbox_api_key",
+   "fieldtype": "Data",
+   "label": "Sandbox API Key"
+  },
+  {
+   "depends_on": "sandbox_mode",
+   "fieldname": "sandbox_api_secret",
+   "fieldtype": "Password",
+   "label": "Sandbox API Secret"
+  },
+  {
+   "depends_on": "sandbox_mode",
+   "fieldname": "sandbox_webhook_url",
+   "fieldtype": "Data",
+   "label": "Sandbox Webhook URL"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_16",
+   "fieldtype": "Section Break",
+   "label": "Account Details"
+  },
+  {
+   "fieldname": "account_details",
+   "fieldtype": "Section Break",
+   "label": "Account Information"
+  },
+  {
+   "fieldname": "account_email",
+   "fieldtype": "Data",
+   "label": "Account Email/Username"
+  },
+  {
+   "fieldname": "phone_number",
+   "fieldtype": "Data",
+   "label": "Phone Number"
+  },
+  {
+   "fieldname": "account_id",
+   "fieldtype": "Data",
+   "label": "Account ID/Handle"
+  },
+  {
+   "fieldname": "column_break_20",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "qr_code",
+   "fieldtype": "Attach Image",
+   "label": "QR Code"
+  },
+  {
+   "fieldname": "payment_link",
+   "fieldtype": "Data",
+   "label": "Payment Link"
+  },
+  {
+   "fieldname": "additional_config",
+   "fieldtype": "JSON",
+   "label": "Additional Configuration"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_24",
+   "fieldtype": "Section Break",
+   "label": "Details & Instructions"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "instructions",
+   "fieldtype": "Text Editor",
+   "label": "Payment Instructions"
+  },
+  {
+   "fieldname": "fees_and_limits",
+   "fieldtype": "Section Break",
+   "label": "Fees and Limits"
+  },
+  {
+   "default": "0",
+   "fieldname": "min_amount",
+   "fieldtype": "Currency",
+   "label": "Minimum Amount"
+  },
+  {
+   "default": "10000",
+   "fieldname": "max_amount",
+   "fieldtype": "Currency",
+   "label": "Maximum Amount"
+  },
+  {
+   "default": "0",
+   "fieldname": "fixed_fee",
+   "fieldtype": "Currency",
+   "label": "Fixed Fee"
+  },
+  {
+   "default": "0",
+   "fieldname": "percentage_fee",
+   "fieldtype": "Percent",
+   "label": "Percentage Fee"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-08-16 14:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Rockettradeline",
+ "name": "Payment Configuration",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Administrator",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "sort_order",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 1
+}
