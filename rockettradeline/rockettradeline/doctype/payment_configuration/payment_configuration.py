@@ -48,32 +48,46 @@ class PaymentConfiguration(Document):
         # Apple Cash requires phone number
         if self.payment_method == 'Apple Cash' and not self.phone_number:
             frappe.throw("Apple Cash requires a phone number")
+        
+        return {"valid": True, "errors": []}
     
     def validate_fees_and_limits(self):
         """Validate fee and limit settings"""
-        if self.min_amount < 0:
+        # Convert and validate min_amount
+        min_amount = float(self.min_amount or 0)
+        if min_amount < 0:
             frappe.throw("Minimum amount cannot be negative")
         
-        if self.max_amount <= 0:
+        # Convert and validate max_amount
+        max_amount = float(self.max_amount or 0)
+        if max_amount <= 0:
             frappe.throw("Maximum amount must be greater than 0")
         
-        if self.min_amount >= self.max_amount:
+        if min_amount >= max_amount:
             frappe.throw("Minimum amount must be less than maximum amount")
         
-        if self.fixed_fee < 0:
+        # Convert and validate fixed_fee
+        fixed_fee = float(self.fixed_fee or 0)
+        if fixed_fee < 0:
             frappe.throw("Fixed fee cannot be negative")
         
-        if self.percentage_fee < 0 or self.percentage_fee > 100:
+        # Convert and validate percentage_fee
+        percentage_fee = float(self.percentage_fee or 0)
+        if percentage_fee < 0 or percentage_fee > 100:
             frappe.throw("Percentage fee must be between 0 and 100")
     
     def calculate_fees(self, amount):
         """Calculate total fees for a given amount"""
-        amount = Decimal(str(amount))
+        amount = Decimal(str(amount or 0))
         fixed_fee = Decimal(str(self.fixed_fee or 0))
         percentage_fee = Decimal(str(self.percentage_fee or 0)) / 100
         
         total_fee = fixed_fee + (amount * percentage_fee)
-        return float(total_fee)
+        return {
+            "fixed_fee": float(fixed_fee),
+            "percentage_fee_amount": float(amount * percentage_fee),
+            "total_fee": float(total_fee)
+        }
     
     def get_payment_config(self):
         """Get payment configuration for API usage"""
@@ -122,24 +136,30 @@ class PaymentConfiguration(Document):
     def create_payment_request(self, amount, cart_id, customer_email=None):
         """Create a payment request for the configured method"""
         try:
+            # Convert amount to float for validation
+            amount = float(amount or 0)
+            
             # Validate amount against limits
-            if amount < self.min_amount:
-                frappe.throw(f"Amount must be at least ${self.min_amount}")
-            if amount > self.max_amount:
-                frappe.throw(f"Amount cannot exceed ${self.max_amount}")
+            min_amount = float(self.min_amount or 0)
+            max_amount = float(self.max_amount or 999999)
+            
+            if amount < min_amount:
+                frappe.throw(f"Amount must be at least ${min_amount}")
+            if amount > max_amount:
+                frappe.throw(f"Amount cannot exceed ${max_amount}")
             
             # Calculate fees
-            fees = self.calculate_fees(amount)
-            total_amount = amount + fees
+            fees_result = self.calculate_fees(amount)
+            total_amount = amount + fees_result["total_fee"]
             
             payment_request = {
                 'cart_id': cart_id,
                 'payment_method': self.payment_method,
                 'amount': amount,
-                'fees': fees,
+                'fees': fees_result["total_fee"],
                 'total_amount': total_amount,
                 'status': 'Pending',
-                'instructions': self.instructions or f"Please pay ${total_amount:.2f} using {self.display_name}"
+                'instructions': self.instructions or f"Please pay ${total_amount:.2f} using {self.display_name or self.payment_method}"
             }
             
             # Add method-specific details

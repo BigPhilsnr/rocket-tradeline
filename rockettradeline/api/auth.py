@@ -1038,11 +1038,48 @@ def get_current_user():
             # Convert to dict to include child tables
             customer = customer_doc.as_dict()
             
+            # Ensure the new flags are included with proper defaults
+            customer['is_seller'] = bool(getattr(customer_doc, 'is_seller', 0))
+            customer['has_signed_agreement'] = bool(getattr(customer_doc, 'has_signed_agreement', 0))
+            customer['is_questionnaire_filled'] = bool(getattr(customer_doc, 'is_questionnaire_filled', 0))
+            customer['agreement_signed_date'] = getattr(customer_doc, 'agreement_signed_date', None)
+            customer['questionnaire_filled_date'] = getattr(customer_doc, 'questionnaire_filled_date', None)
+            
             # Remove system fields that aren't needed in API response
             system_fields = ['docstatus', 'idx', 'owner', 'modified_by', 'creation', 'modified']
             for field in system_fields:
                 customer.pop(field, None)
         
+        # Get user files/attachments
+        user_files = frappe.get_all("File",
+            filters={
+                "owner": user.name
+            },
+            fields=[
+                "name", "file_name", "file_url", "file_size", "file_type",
+                "is_private", "folder", "attached_to_doctype", "attached_to_name",
+                "creation", "modified", "content_hash"
+            ],
+            order_by="creation desc"
+        )
+        
+        # Get role profile information
+        role_profile_name = getattr(user, 'role_profile_name', None)
+        role_profile_data = None
+        
+        if role_profile_name:
+            try:
+                role_profile_doc = frappe.get_doc("Role Profile", role_profile_name)
+                role_profile_data = {
+                    "name": role_profile_doc.name,
+                    "role_profile": role_profile_doc.role_profile,
+                    "roles": [{"role": role.role} for role in role_profile_doc.roles],
+                    "creation": role_profile_doc.creation,
+                    "modified": role_profile_doc.modified
+                }
+            except frappe.DoesNotExistError:
+                role_profile_data = None
+
         response_data = {
             "success": True,
             "user": {
@@ -1050,11 +1087,15 @@ def get_current_user():
                 "email": user.email,
                 "full_name": user.full_name,
                 "user_image": user.user_image,
+                "birth_date": user.birth_date,
                 "phone": user.phone,
                 "roles": [role.role for role in user.roles],
+                "role_profile_name": role_profile_name,
+                # "role_profile": role_profile_data,
                 "user_type": user.user_type,
                 "enabled": user.enabled
-            }
+            },
+            # "files": user_files
         }
         
         if customer:
@@ -1175,7 +1216,12 @@ def update_profile(full_name=None, phone=None, user_image=None, gender=None, dat
                 "email_id": customer.email_id,
                 "mobile_no": customer.mobile_no,
                 "gender": getattr(customer, 'gender', None),
-                "tax_id": customer.tax_id
+                "tax_id": customer.tax_id,
+                "is_seller": bool(getattr(customer, 'is_seller', 0)),
+                "has_signed_agreement": bool(getattr(customer, 'has_signed_agreement', 0)),
+                "is_questionnaire_filled": bool(getattr(customer, 'is_questionnaire_filled', 0)),
+                "agreement_signed_date": getattr(customer, 'agreement_signed_date', None),
+                "questionnaire_filled_date": getattr(customer, 'questionnaire_filled_date', None)
             }
         
         response_data = {
@@ -1206,6 +1252,150 @@ def update_profile(full_name=None, phone=None, user_image=None, gender=None, dat
         return {
             "success": False,
             "message": f"Profile update failed: {error_type}"
+        }
+
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
+def update_customer_flags(is_seller=None, has_signed_agreement=None, is_questionnaire_filled=None):
+    """
+    Update customer flags (is_seller, has_signed_agreement, is_questionnaire_filled)
+    Automatically authenticated via JWT decorator
+    """
+    try:
+        user_name = get_authenticated_user()
+        if not user_name:
+            frappe.local.response.http_status_code = 401
+            return {"success": False, "message": "Authentication required"}
+        
+        user = frappe.get_doc("User", user_name)
+        
+        # Find customer record
+        customer_data = frappe.get_all("Customer", 
+            filters={"email_id": user.email},
+            limit=1
+        )
+        
+        if not customer_data:
+            customer_data = frappe.get_all("Customer", 
+                filters={"user": user.name},
+                limit=1
+            )
+        
+        if not customer_data:
+            return {
+                "success": False,
+                "message": "Customer record not found"
+            }
+        
+        customer = frappe.get_doc("Customer", customer_data[0].name)
+        
+        # Track what was updated
+        updated_fields = []
+        
+        # Update flags if provided
+        if is_seller is not None:
+            customer.is_seller = int(is_seller)
+            updated_fields.append("is_seller")
+        
+        if has_signed_agreement is not None:
+            customer.has_signed_agreement = int(has_signed_agreement)
+            if has_signed_agreement:
+                customer.agreement_signed_date = now_datetime()
+            updated_fields.append("has_signed_agreement")
+        
+        if is_questionnaire_filled is not None:
+            customer.is_questionnaire_filled = int(is_questionnaire_filled)
+            if is_questionnaire_filled:
+                customer.questionnaire_filled_date = now_datetime()
+            updated_fields.append("is_questionnaire_filled")
+        
+        if not updated_fields:
+            return {
+                "success": False,
+                "message": "No flags provided to update"
+            }
+        
+        customer.save(ignore_permissions=True)
+        
+        return {
+            "success": True,
+            "message": f"Customer flags updated: {', '.join(updated_fields)}",
+            "customer": {
+                "name": customer.name,
+                "customer_name": customer.customer_name,
+                "is_seller": bool(customer.is_seller),
+                "has_signed_agreement": bool(customer.has_signed_agreement),
+                "is_questionnaire_filled": bool(customer.is_questionnaire_filled),
+                "agreement_signed_date": customer.agreement_signed_date,
+                "questionnaire_filled_date": customer.questionnaire_filled_date
+            }
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Update customer flags error: {str(e)}")
+        frappe.local.response.http_status_code = 500
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
+def get_customer_status():
+    """
+    Get customer status flags and related information
+    Automatically authenticated via JWT decorator
+    """
+    try:
+        user_name = get_authenticated_user()
+        if not user_name:
+            frappe.local.response.http_status_code = 401
+            return {"success": False, "message": "Authentication required"}
+        
+        user = frappe.get_doc("User", user_name)
+        
+        # Find customer record
+        customer_data = frappe.get_all("Customer", 
+            filters={"email_id": user.email},
+            limit=1
+        )
+        
+        if not customer_data:
+            customer_data = frappe.get_all("Customer", 
+                filters={"user": user.name},
+                limit=1
+            )
+        
+        if not customer_data:
+            return {
+                "success": False,
+                "message": "Customer record not found"
+            }
+        
+        customer = frappe.get_doc("Customer", customer_data[0].name)
+        
+        return {
+            "success": True,
+            "customer_status": {
+                "name": customer.name,
+                "customer_name": customer.customer_name,
+                "customer_type": customer.customer_type,
+                "is_seller": bool(getattr(customer, 'is_seller', 0)),
+                "has_signed_agreement": bool(getattr(customer, 'has_signed_agreement', 0)),
+                "is_questionnaire_filled": bool(getattr(customer, 'is_questionnaire_filled', 0)),
+                "agreement_signed_date": getattr(customer, 'agreement_signed_date', None),
+                "questionnaire_filled_date": getattr(customer, 'questionnaire_filled_date', None),
+                "email_id": customer.email_id,
+                "mobile_no": customer.mobile_no
+            }
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Get customer status error: {str(e)}")
+        frappe.local.response.http_status_code = 500
+        return {
+            "success": False,
+            "message": str(e)
         }
 
 @frappe.whitelist()
@@ -1963,6 +2153,23 @@ def get_profile():
             for field in system_fields:
                 customer.pop(field, None)
         
+        # Get role profile information
+        role_profile_name = getattr(user, 'role_profile_name', None)
+        role_profile_data = None
+        
+        if role_profile_name:
+            try:
+                role_profile_doc = frappe.get_doc("Role Profile", role_profile_name)
+                role_profile_data = {
+                    "name": role_profile_doc.name,
+                    "role_profile": role_profile_doc.role_profile,
+                    "roles": [{"role": role.role} for role in role_profile_doc.roles],
+                    "creation": role_profile_doc.creation,
+                    "modified": role_profile_doc.modified
+                }
+            except frappe.DoesNotExistError:
+                role_profile_data = None
+
         response_data = {
             "success": True,
             "user": {
@@ -1972,6 +2179,8 @@ def get_profile():
                 "user_image": user.user_image,
                 "phone": user.phone,
                 "roles": [role.role for role in user.roles],
+                "role_profile_name": role_profile_name,
+                "role_profile": role_profile_data,
                 "user_type": user.user_type,
                 "enabled": user.enabled,
                 "creation": user.creation.strftime("%Y-%m-%d %H:%M:%S") if user.creation else None

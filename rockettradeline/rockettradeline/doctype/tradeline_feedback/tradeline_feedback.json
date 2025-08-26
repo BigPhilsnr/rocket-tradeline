@@ -1,0 +1,205 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2025-08-21 12:00:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "feedback_id",
+  "section_break_3",
+  "question_1_why_buying",
+  "question_2_importance",
+  "question_3_credit_score",
+  "question_4_derogatory_marks",
+  "section_break_7",
+  "first_name",
+  "last_name",
+  "email",
+  "phone",
+  "section_break_12",
+  "submission_date",
+  "ip_address",
+  "user_agent",
+  "source",
+  "submitted_by_user",
+  "status"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "TLF-.YYYY.-.#####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "feedback_id",
+   "fieldtype": "Data",
+   "label": "Feedback ID",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "section_break_3",
+   "fieldtype": "Section Break",
+   "label": "Feedback Questions"
+  },
+  {
+   "fieldname": "question_1_why_buying",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Why are you looking to buy a tradeline?",
+   "options": "I want to buy a home or property\nI want to refinance a mortgage\nI want to buy a car\nI want to apply for a personal or business loan\nOther reasons (e.g. rent a house)",
+   "reqd": 1
+  },
+  {
+   "fieldname": "question_2_importance",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "What are your main reasons for purchasing a tradeline?",
+   "options": "To access lower interest rates\nTo access higher credit limits\nTo boost your credit score\nQualify to buy a house\nQualify to buy a Car",
+   "reqd": 1
+  },
+  {
+   "fieldname": "question_3_credit_score",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "What is your current credit score?",
+   "options": "Bad credit: 300 to 579\nFair credit: 630 to 689\nGood credit: 690 to 719\nExcellent credit: 720 to 850",
+   "reqd": 1
+  },
+  {
+   "fieldname": "question_4_derogatory_marks",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Do you have any of the following derogatory marks?",
+   "options": "​​Late payments that are around 30 days or more past due\nCharge-offs\nForeclosures\nBankruptcy filings\nRepossessions",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_7",
+   "fieldtype": "Section Break",
+   "label": "Contact Information"
+  },
+  {
+   "fieldname": "first_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "First Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "last_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Last Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Email",
+   "options": "Email",
+   "reqd": 1
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "label": "Phone Number",
+   "options": "Phone"
+  },
+  {
+   "fieldname": "section_break_12",
+   "fieldtype": "Section Break",
+   "label": "Submission Details"
+  },
+  {
+   "fieldname": "submission_date",
+   "fieldtype": "Datetime",
+   "label": "Submission Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ip_address",
+   "fieldtype": "Data",
+   "label": "IP Address",
+   "read_only": 1
+  },
+  {
+   "fieldname": "user_agent",
+   "fieldtype": "Long Text",
+   "label": "User Agent",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Data",
+   "label": "Source",
+   "read_only": 1
+  },
+  {
+   "fieldname": "submitted_by_user",
+   "fieldtype": "Link",
+   "label": "Submitted By User",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "New\nContacted\nConverted\nClosed",
+   "default": "New"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-08-21 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "RocketTradeline",
+ "name": "Tradeline Feedback",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Website Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Customer",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

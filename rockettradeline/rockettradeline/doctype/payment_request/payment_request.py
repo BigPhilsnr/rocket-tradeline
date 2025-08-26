@@ -5,6 +5,7 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import now_datetime, add_days, flt
 import json
+from rockettradeline.api.payment import is_administrator
 
 
 class PaymentRequest(Document):
@@ -26,6 +27,70 @@ class PaymentRequest(Document):
         # Calculate total amount if not set
         if not self.total_amount:
             self.total_amount = flt(self.amount) + flt(self.fees)
+        
+        # Set customer information from cart or email
+        self.set_customer_info()
+    
+    def set_customer_info(self):
+        """Set customer and customer name from cart or email"""
+        try:
+            # First try to get customer from cart
+            if self.cart_id:
+                cart = frappe.get_doc("Tradeline Cart", self.cart_id)
+                if cart.user_id:
+                    # Try to find customer by email
+                    customer = frappe.db.get_value("Customer", {"email_id": cart.user_id}, ["name", "customer_name"])
+                    if customer:
+                        self.customer = customer[0]
+                        self.customer_name = customer[1]
+                        if not self.customer_email:
+                            self.customer_email = cart.user_id
+                        return
+            
+            # If no customer found from cart, try from customer_email
+            if self.customer_email and not self.customer:
+                customer = frappe.db.get_value("Customer", {"email_id": self.customer_email}, ["name", "customer_name"])
+                if customer:
+                    self.customer = customer[0]
+                    self.customer_name = customer[1]
+                    return
+            
+            # If still no customer found, create one if we have email
+            if self.customer_email and not self.customer:
+                self.create_customer_from_email()
+                
+        except Exception as e:
+            frappe.log_error(f"Error setting customer info for payment request: {str(e)}")
+    
+    def create_customer_from_email(self):
+        """Create a new customer from email if it doesn't exist"""
+        try:
+            if not self.customer_email:
+                return
+                
+            # Extract name from email (before @ symbol)
+            email_name = self.customer_email.split('@')[0]
+            customer_name = email_name.replace('.', ' ').replace('_', ' ').title()
+            
+            # Create new customer
+            customer_doc = frappe.get_doc({
+                "doctype": "Customer",
+                "customer_name": customer_name,
+                "email_id": self.customer_email,
+                "customer_type": "Individual",
+                "customer_group": "Individual",
+                "territory": "All Territories"
+            })
+            
+            customer_doc.insert(ignore_permissions=True)
+            
+            self.customer = customer_doc.name
+            self.customer_name = customer_doc.customer_name
+            
+            frappe.logger().info(f"Created new customer {customer_doc.name} for payment request")
+            
+        except Exception as e:
+            frappe.log_error(f"Error creating customer from email: {str(e)}")
     
     def validate(self):
         """Validate payment request data"""
@@ -48,8 +113,8 @@ class PaymentRequest(Document):
     def validate_cart_access(self):
         """Validate user has access to the cart"""
         if self.cart_id:
-            cart = frappe.get_doc("TradelineCart", self.cart_id)
-            if cart.user_id != frappe.session.user and frappe.session.user != "Administrator":
+            cart = frappe.get_doc("Tradeline Cart", self.cart_id)
+            if cart.user_id != frappe.session.user and not is_administrator(frappe.session.user):
                 frappe.throw("You don't have permission to create payment for this cart")
     
     def validate_payment_method(self):
@@ -71,6 +136,8 @@ class PaymentRequest(Document):
         """Handle payment status changes"""
         if self.status == "Completed" and not self.completed_at:
             self.completed_at = now_datetime()
+            # Create Client Tradelines when payment is completed
+            self.create_client_tradelines()
         
         elif self.status == "Verified" and not self.verified_at:
             self.verified_at = now_datetime()
@@ -104,7 +171,7 @@ class PaymentRequest(Document):
         """Handle payment request expiry"""
         # Update related cart status if needed
         if self.cart_id:
-            cart = frappe.get_doc("TradelineCart", self.cart_id)
+            cart = frappe.get_doc("Tradeline Cart", self.cart_id)
             cart.add_comment("Comment", f"Payment request {self.name} expired")
     
     def get_payment_data_dict(self):
@@ -184,7 +251,7 @@ class PaymentRequest(Document):
     def get_cart_details(self):
         """Get associated cart details"""
         if self.cart_id:
-            return frappe.get_doc("TradelineCart", self.cart_id)
+            return frappe.get_doc("Tradeline Cart", self.cart_id)
         return None
     
     def get_payment_config(self):
@@ -195,6 +262,22 @@ class PaymentRequest(Document):
                 "is_active": 1
             })
         return None
+    
+    def create_client_tradelines(self):
+        """Create Client Tradelines records when payment is completed"""
+        try:
+            # Import here to avoid circular imports
+            from rockettradeline.rockettradeline.doctype.client_tradelines.client_tradelines import create_client_tradelines_from_payment
+            
+            # Create Client Tradelines records
+            created_records = create_client_tradelines_from_payment(self)
+            
+            frappe.logger().info(f"Successfully created {len(created_records)} Client Tradelines records for payment {self.name}")
+            
+        except Exception as e:
+            frappe.log_error(f"Failed to create Client Tradelines for payment {self.name}: {str(e)}", "Payment Request Hook Error")
+            # Don't raise the error to prevent payment completion from failing
+            pass
 
 
 # Scheduled task to handle expired payment requests
@@ -217,3 +300,22 @@ def handle_expired_payments():
             frappe.db.commit()
         except Exception as e:
             frappe.log_error(f"Failed to expire payment request {payment.name}: {str(e)}")
+
+
+# Hook function for document events
+def on_payment_request_update(doc, method):
+    """Hook function called when Payment Request is updated"""
+    try:
+        # Check if status changed to Completed
+        if doc.has_value_changed("status") and doc.status == "Completed":
+            # Import here to avoid circular imports
+            from rockettradeline.rockettradeline.doctype.client_tradelines.client_tradelines import create_client_tradelines_from_payment
+            
+            # Create Client Tradelines records
+            created_records = create_client_tradelines_from_payment(doc)
+            
+            frappe.logger().info(f"Hook: Successfully created {len(created_records)} Client Tradelines records for payment {doc.name}")
+            
+    except Exception as e:
+        frappe.log_error(f"Hook error for payment {doc.name}: {str(e)}", "Payment Request Hook Error")
+        # Don't raise the error to prevent payment update from failing

@@ -8,6 +8,19 @@ from frappe.utils import cint, flt, now, add_days, now_datetime, get_datetime
 import json
 from rockettradeline.api.auth import jwt_required, get_current_user, get_authenticated_user
 
+def is_administrator(user):
+    """Check if user has Administrator role or profile"""
+    if user == "Administrator":
+        return True
+    
+    # Check if user has Administrator role profile
+    user_roles = frappe.get_roles(user)
+    return "System Manager" in user_roles
+
+def verify_cart_access(cart, current_user):
+    """Verify if user has access to cart (owner or administrator)"""
+    return cart.user_id == current_user or is_administrator(current_user)
+
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
 def create_cart():
@@ -69,8 +82,8 @@ def get_cart(cart_id=None):
         if cart_id:
             # Get specific cart
             cart = frappe.get_doc('Tradeline Cart', cart_id)
-            # Verify ownership
-            if cart.user_id != current_user:
+            # Verify ownership or admin access
+            if not verify_cart_access(cart, current_user):
                 return {'success': False, 'error': 'Access denied'}
         else:
             # Get active cart
@@ -81,7 +94,7 @@ def get_cart(cart_id=None):
             )
             
             if not cart_name:
-                return {'success': False, 'error': 'No active cart found'}
+                return {'success': False, 'error': 'No active cart found', 'user': current_user}
             
             cart = frappe.get_doc('Tradeline Cart', cart_name)
         
@@ -143,7 +156,7 @@ def add_to_cart(tradeline_id, quantity=1, cart_id=None):
         # Get or create cart
         if cart_id:
             cart = frappe.get_doc('Tradeline Cart', cart_id)
-            if cart.user_id != current_user:
+            if not verify_cart_access(cart, current_user):
                 return {'success': False, 'error': 'Access denied'}
         else:
             # Get active cart or create new one
@@ -221,7 +234,7 @@ def remove_from_cart(tradeline_id, cart_id=None):
         # Get cart
         if cart_id:
             cart = frappe.get_doc('Tradeline Cart', cart_id)
-            if cart.user_id != current_user:
+            if not verify_cart_access(cart, current_user):
                 return {'success': False, 'error': 'Access denied'}
         else:
             cart_name = frappe.db.get_value(
@@ -279,7 +292,7 @@ def update_cart_item(tradeline_id, quantity, cart_id=None):
         # Get cart
         if cart_id:
             cart = frappe.get_doc('Tradeline Cart', cart_id)
-            if cart.user_id != current_user:
+            if not verify_cart_access(cart, current_user):
                 return {'success': False, 'error': 'Access denied'}
         else:
             cart_name = frappe.db.get_value(
@@ -337,7 +350,7 @@ def clear_cart(cart_id=None):
         # Get cart
         if cart_id:
             cart = frappe.get_doc('Tradeline Cart', cart_id)
-            if cart.user_id != current_user:
+            if not verify_cart_access(cart, current_user):
                 return {'success': False, 'error': 'Access denied'}
         else:
             cart_name = frappe.db.get_value(
@@ -379,7 +392,7 @@ def update_payment_mode(payment_mode, cart_id=None):
         # Get cart
         if cart_id:
             cart = frappe.get_doc('Tradeline Cart', cart_id)
-            if cart.user_id != current_user:
+            if not verify_cart_access(cart, current_user):
                 return {'success': False, 'error': 'Access denied'}
         else:
             cart_name = frappe.db.get_value(
@@ -421,7 +434,7 @@ def apply_discount(discount_type, discount_value, cart_id=None):
         # Get cart
         if cart_id:
             cart = frappe.get_doc('Tradeline Cart', cart_id)
-            if cart.user_id != current_user:
+            if not verify_cart_access(cart, current_user):
                 return {'success': False, 'error': 'Access denied'}
         else:
             cart_name = frappe.db.get_value(
@@ -467,7 +480,7 @@ def checkout_cart(cart_id=None):
         # Get cart
         if cart_id:
             cart = frappe.get_doc('Tradeline Cart', cart_id)
-            if cart.user_id != current_user:
+            if not verify_cart_access(cart, current_user):
                 return {'success': False, 'error': 'Access denied'}
         else:
             cart_name = frappe.db.get_value(
@@ -596,7 +609,7 @@ def create_payment_request(payment_method, cart_id=None, **kwargs):
         # Get cart
         if cart_id:
             cart = frappe.get_doc('Tradeline Cart', cart_id)
-            if cart.user_id != current_user:
+            if not verify_cart_access(cart, current_user):
                 return {'success': False, 'error': 'Access denied'}
         else:
             cart_name = frappe.db.get_value(
@@ -661,7 +674,7 @@ def get_cart_payment_status(cart_id=None):
         # Get cart
         if cart_id:
             cart = frappe.get_doc('Tradeline Cart', cart_id)
-            if cart.user_id != current_user:
+            if not verify_cart_access(cart, current_user):
                 return {'success': False, 'error': 'Access denied'}
         else:
             cart_name = frappe.db.get_value(
@@ -708,7 +721,7 @@ def extend_cart_expiry(days=30, cart_id=None):
         # Get cart
         if cart_id:
             cart = frappe.get_doc('Tradeline Cart', cart_id)
-            if cart.user_id != current_user:
+            if not verify_cart_access(cart, current_user):
                 return {'success': False, 'error': 'Access denied'}
         else:
             cart_name = frappe.db.get_value(

@@ -8,16 +8,22 @@ from frappe.utils import get_files_path, random_string, now, get_url
 from frappe.utils.file_manager import save_file
 from werkzeug.utils import secure_filename
 import hashlib
+from .auth import jwt_required, get_authenticated_user
 
 # File Upload APIs
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
 def upload_file():
     """
     Upload a file to the system
     Supports both form data and base64 uploads
     """
     try:
+        current_user = get_authenticated_user()
+        if not current_user:
+            return {"success": False, "message": "Authentication required"}
+        
         files = frappe.request.files
         form_data = frappe.local.form_dict
         
@@ -39,6 +45,23 @@ def upload_file():
                     "message": "No file selected"
                 }
             
+            # Check if user is trying to upload public file (only admin allowed)
+            is_private = int(form_data.get('is_private', 1))  # Default to private
+            if not is_private and not has_administrator_role(current_user):
+                return {
+                    "success": False,
+                    "message": "Only administrators can upload public files"
+                }
+            
+            # Validate file_name if provided
+            allowed_file_names = ['dl_front', 'dl_back', 'proof_of_address', 'client_signature']
+            provided_file_name = form_data.get('file_name')
+            if provided_file_name and provided_file_name not in allowed_file_names:
+                return {
+                    "success": False,
+                    "message": f"Invalid file_name. Only allowed: {', '.join(allowed_file_names)}"
+                }
+            
             # Validate file
             validation_result = validate_file(uploaded_file)
             if not validation_result["valid"]:
@@ -47,14 +70,36 @@ def upload_file():
                     "message": validation_result["message"]
                 }
             
+            # Generate custom filename if doctype and docname are provided
+            # Get file extension from original file
+            original_ext = os.path.splitext(uploaded_file.filename)[1]
+            # Use file_name from form data or fallback to original filename
+            base_filename = form_data.get('file_name', uploaded_file.filename)
+            base_filename = secure_filename(base_filename)
+            
+            # Ensure the file has the correct extension
+            if not base_filename.endswith(original_ext):
+                name_without_ext = os.path.splitext(base_filename)[0]
+                base_filename = f"{name_without_ext}{original_ext}"
+            
+            doctype = form_data.get('doctype')
+            docname = form_data.get('docname')
+            
+            if doctype and docname:
+                # Create custom filename: doctype_docname_filename
+                custom_filename = f"{doctype}_{docname}_{base_filename}"
+                custom_filename = secure_filename(custom_filename)
+            else:
+                custom_filename = base_filename
+            
             # Save file using Frappe's file manager
             file_doc = save_file(
-                filename=secure_filename(uploaded_file.filename),
+                fname=custom_filename,
                 content=uploaded_file.read(),
-                dt=form_data.get('doctype'),
-                dn=form_data.get('docname'),
+                dt=doctype,
+                dn=docname,
                 folder=form_data.get('folder', 'Home'),
-                is_private=int(form_data.get('is_private', 0))
+                is_private=is_private
             )
             
             return {
@@ -75,6 +120,23 @@ def upload_file():
             file_content = form_data.get('file_content')
             filename = secure_filename(form_data.get('filename'))
             
+            # Check if user is trying to upload public file (only admin allowed)
+            is_private = int(form_data.get('is_private', 1))  # Default to private
+            if not is_private and not has_administrator_role(current_user):
+                return {
+                    "success": False,
+                    "message": "Only administrators can upload public files"
+                }
+            
+            # Validate file_name if provided
+            allowed_file_names = ['dl_front', 'dl_back', 'proof_of_address', 'client_signature']
+            provided_file_name = form_data.get('file_name')
+            if provided_file_name and provided_file_name not in allowed_file_names:
+                return {
+                    "success": False,
+                    "message": f"Invalid file_name. Only allowed: {', '.join(allowed_file_names)}"
+                }
+            
             # Decode base64 content
             try:
                 if ',' in file_content:  # Handle data URL format
@@ -93,16 +155,42 @@ def upload_file():
                     "message": f"File size exceeds maximum limit of {get_max_file_size() / (1024*1024):.1f} MB"
                 }
             
+            # Generate custom filename if doctype and docname are provided
+            # Get file extension from original filename
+            original_ext = os.path.splitext(form_data.get('filename', ''))[1]
+            # Use file_name from form data or fallback to filename
+            base_filename = form_data.get('file_name', form_data.get('filename', ''))
+            base_filename = secure_filename(base_filename)
+            
+            # Ensure the file has the correct extension
+            if original_ext and not base_filename.endswith(original_ext):
+                name_without_ext = os.path.splitext(base_filename)[0]
+                base_filename = f"{name_without_ext}{original_ext}"
+            
+            doctype = form_data.get('doctype')
+            docname = form_data.get('docname')
+            
+            if doctype and docname:
+                # Create custom filename: doctype_docname_filename
+                custom_filename = f"{doctype}_{docname}_{base_filename}"
+                custom_filename = secure_filename(custom_filename)
+            else:
+                custom_filename = base_filename
+            
             # Save file
             file_doc = save_file(
-                filename=filename,
+                fname=custom_filename,
                 content=content,
-                dt=form_data.get('doctype'),
-                dn=form_data.get('docname'),
+                dt=doctype,
+                dn=docname,
                 folder=form_data.get('folder', 'Home'),
-                is_private=int(form_data.get('is_private', 0))
+                is_private=is_private
             )
             
+            if provided_file_name == 'client_signature':
+                frappe.db.sql("update `tabCustomer` set is_questionnaire_filled = %s where email_id = %s", (1, current_user))
+
+
             return {
                 "success": True,
                 "message": "File uploaded successfully",
@@ -130,12 +218,17 @@ def upload_file():
             "message": f"Failed to upload file: {str(e)}"
         }
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
 def upload_multiple_files():
     """
     Upload multiple files at once
     """
     try:
+        current_user = get_authenticated_user()
+        if not current_user:
+            return {"success": False, "message": "Authentication required"}
+        
         files = frappe.request.files
         form_data = frappe.local.form_dict
 
@@ -161,6 +254,25 @@ def upload_multiple_files():
                 continue
 
             try:
+                # Validate file_name if provided
+                allowed_file_names = ['dl_front', 'dl_back', 'proof_of_address']
+                provided_file_name = form_data.get('file_name')
+                if provided_file_name and provided_file_name not in allowed_file_names:
+                    errors.append({
+                        "filename": uploaded_file.filename,
+                        "error": f"Invalid file_name. Only allowed: {', '.join(allowed_file_names)}"
+                    })
+                    continue
+                
+                # Check if user is trying to upload public file (only admin allowed)
+                is_private = int(form_data.get('is_private', 1))  # Default to private
+                if not is_private and not has_administrator_role(current_user):
+                    errors.append({
+                        "filename": uploaded_file.filename,
+                        "error": "Only administrators can upload public files"
+                    })
+                    continue
+                
                 # Validate file
                 validation_result = validate_file(uploaded_file)
                 if not validation_result["valid"]:
@@ -170,13 +282,35 @@ def upload_multiple_files():
                     })
                     continue
 
+                # Generate custom filename if doctype and docname are provided
+                # Get file extension from original file
+                original_ext = os.path.splitext(uploaded_file.filename)[1]
+                # Use file_name from form data or fallback to original filename
+                base_filename = form_data.get('file_name', uploaded_file.filename)
+                base_filename = secure_filename(base_filename)
+                
+                # Ensure the file has the correct extension
+                if not base_filename.endswith(original_ext):
+                    name_without_ext = os.path.splitext(base_filename)[0]
+                    base_filename = f"{name_without_ext}{original_ext}"
+                
+                doctype = form_data.get('doctype')
+                docname = form_data.get('docname')
+                
+                if doctype and docname:
+                    # Create custom filename: doctype_docname_filename
+                    custom_filename = f"{doctype}_{docname}_{base_filename}"
+                    custom_filename = secure_filename(custom_filename)
+                else:
+                    custom_filename = base_filename
+
                 file_doc = save_file(
-                    filename=secure_filename(uploaded_file.filename),
+                    fname=custom_filename,
                     content=uploaded_file.read(),
-                    dt=form_data.get('doctype'),
-                    dn=form_data.get('docname'),
+                    dt=doctype,
+                    dn=docname,
                     folder=form_data.get('folder', 'Home'),
-                    is_private=int(form_data.get('is_private', 0))
+                    is_private=is_private
                 )
 
                 uploaded_files.append({
@@ -211,12 +345,32 @@ def upload_multiple_files():
 # File Access APIs
 
 @frappe.whitelist(allow_guest=True)
+@jwt_required()
 def get_file_info(file_name):
     """
-    Get file information by name
+    Get file information by file_name (not document name)
     """
     try:
-        file_doc = frappe.get_doc("File", file_name)
+        current_user = get_authenticated_user()
+        if not current_user or current_user == "Guest":
+            frappe.throw("Authentication required", frappe.AuthenticationError)
+        
+        # Find file by file_name field, not by document name
+        file_docs = frappe.get_all("File", 
+            filters={"file_name": file_name},
+            fields=["name"],
+            limit=1
+        )
+        
+        if not file_docs:
+            frappe.local.response.http_status_code = 404
+            return {
+                "success": False,
+                "message": "File not found"
+            }
+        
+        # Get the full document using the document name
+        file_doc = frappe.get_doc("File", file_docs[0].name)
         
         # Check permissions for private files
         if file_doc.is_private and not has_file_access(file_doc):
@@ -233,7 +387,7 @@ def get_file_info(file_name):
                 "file_name": file_doc.file_name,
                 "file_url": file_doc.file_url,
                 "file_size": file_doc.file_size,
-                "content_type": file_doc.content_type,
+                "file_type": file_doc.file_type,
                 "is_private": file_doc.is_private,
                 "folder": file_doc.folder,
                 "attached_to_doctype": file_doc.attached_to_doctype,
@@ -259,12 +413,55 @@ def get_file_info(file_name):
         }
 
 @frappe.whitelist(allow_guest=True)
-def download_file(file_name):
+@jwt_required()
+def download_file(file_name=None):
     """
-    Download file by name
+    Download file by file_name (not document name)
+    Supports both GET (query parameter) and POST (JSON body) requests
     """
     try:
-        file_doc = frappe.get_doc("File", file_name)
+        # Initialize response object early
+        if not hasattr(frappe.local, 'response') or frappe.local.response is None:
+            frappe.local.response = frappe._dict()
+        if not hasattr(frappe.local.response, 'headers') or frappe.local.response.headers is None:
+            frappe.local.response.headers = frappe._dict()
+            
+        current_user = get_authenticated_user()
+        if not current_user or current_user == "Guest":
+            frappe.local.response.http_status_code = 401
+            return {
+                "success": False,
+                "message": "Authentication required"
+            }
+        
+        # Get file_name from either query parameter (GET) or JSON body (POST)
+        if not file_name:
+            # Try to get from form_dict (POST JSON body or GET query parameters)
+            file_name = frappe.local.form_dict.get('file_name')
+        
+        if not file_name:
+            frappe.local.response.http_status_code = 400
+            return {
+                "success": False,
+                "message": "file_name parameter is required"
+            }
+        
+        # Find file by file_name field, not by document name
+        file_docs = frappe.get_all("File", 
+            filters={"file_name": file_name},
+            fields=["name"],
+            limit=1
+        )
+        
+        if not file_docs:
+            frappe.local.response.http_status_code = 404
+            return {
+                "success": False,
+                "message": "File not found"
+            }
+        
+        # Get the full document using the document name
+        file_doc = frappe.get_doc("File", file_docs[0].name)
         
         # Check permissions for private files
         if file_doc.is_private and not has_file_access(file_doc):
@@ -284,15 +481,26 @@ def download_file(file_name):
                 "message": "File not found on disk"
             }
         
+        # Initialize response object properly for binary data
+        if not hasattr(frappe.local, 'response') or frappe.local.response is None:
+            frappe.local.response = frappe._dict()
+        if not hasattr(frappe.local.response, 'headers') or frappe.local.response.headers is None:
+            frappe.local.response.headers = frappe._dict()
+        
         # Set response headers for file download
-        frappe.local.response.headers["Content-Type"] = file_doc.content_type or "application/octet-stream"
+        frappe.local.response.headers["Content-Type"] = file_doc.file_type or "application/octet-stream"
         frappe.local.response.headers["Content-Disposition"] = f'attachment; filename="{file_doc.file_name}"'
+        frappe.local.response.headers["Content-Length"] = str(os.path.getsize(file_path))
         
         # Read and return file content
         with open(file_path, 'rb') as f:
-            frappe.local.response.data = f.read()
+            file_content = f.read()
+            
+        # Set the response data
+        frappe.local.response.data = file_content
         
-        return None  # Return None for binary response
+        # Return None to indicate binary response
+        return
         
     except frappe.DoesNotExistError:
         frappe.local.response.http_status_code = 404
@@ -308,13 +516,18 @@ def download_file(file_name):
             "message": str(e)
         }
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
 def get_files_list(doctype=None, docname=None, folder=None, is_private=None, 
                    limit=50, start=0, search=None):
     """
     Get list of files with filtering options
     """
     try:
+        current_user = get_authenticated_user()
+        if not current_user:
+            return {"success": False, "message": "Authentication required"}
+        
         if not frappe.has_permission("File", "read"):
             frappe.local.response.http_status_code = 403
             return {
@@ -341,7 +554,7 @@ def get_files_list(doctype=None, docname=None, folder=None, is_private=None,
         # Get files
         files = frappe.get_all("File",
             filters=filters,
-            fields=["name", "file_name", "file_url", "file_size", "content_type",
+            fields=["name", "file_name", "file_url", "file_size", "file_type",
                    "is_private", "folder", "attached_to_doctype", "attached_to_name",
                    "creation", "modified", "owner"],
             limit=limit,
@@ -368,13 +581,33 @@ def get_files_list(doctype=None, docname=None, folder=None, is_private=None,
             "message": str(e)
         }
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
 def delete_file(file_name):
     """
-    Delete file by name
+    Delete file by file_name (not document name)
     """
     try:
-        file_doc = frappe.get_doc("File", file_name)
+        current_user = get_authenticated_user()
+        if not current_user:
+            return {"success": False, "message": "Authentication required"}
+        
+        # Find file by file_name field, not by document name
+        file_docs = frappe.get_all("File", 
+            filters={"file_name": file_name},
+            fields=["name"],
+            limit=1
+        )
+        
+        if not file_docs:
+            frappe.local.response.http_status_code = 404
+            return {
+                "success": False,
+                "message": "File not found"
+            }
+        
+        # Get the full document using the document name
+        file_doc = frappe.get_doc("File", file_docs[0].name)
         
         # Check permissions
         if not frappe.has_permission("File", "delete", doc=file_doc):
@@ -408,12 +641,17 @@ def delete_file(file_name):
 
 # File Management Utilities
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
 def create_folder(folder_name, parent_folder="Home"):
     """
     Create a new folder
     """
     try:
+        current_user = get_authenticated_user()
+        if not current_user:
+            return {"success": False, "message": "Authentication required"}
+        
         if not frappe.has_permission("File", "create"):
             frappe.local.response.http_status_code = 403
             return {
@@ -464,12 +702,17 @@ def create_folder(folder_name, parent_folder="Home"):
             "message": str(e)
         }
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
 def get_folders():
     """
     Get list of all folders
     """
     try:
+        current_user = get_authenticated_user()
+        if not current_user:
+            return {"success": False, "message": "Authentication required"}
+        
         if not frappe.has_permission("File", "read"):
             frappe.local.response.http_status_code = 403
             return {
@@ -497,11 +740,16 @@ def get_folders():
         }
 
 @frappe.whitelist(allow_guest=True)
+@jwt_required()
 def get_file_by_url(file_url):
     """
     Get file information by file URL
     """
     try:
+        current_user = get_authenticated_user()
+        if not current_user or current_user == "Guest":
+            frappe.throw("Authentication required", frappe.AuthenticationError)
+        
         # Extract file name from URL
         if "/files/" in file_url:
             file_name = file_url.split("/files/")[-1]
@@ -513,7 +761,7 @@ def get_file_by_url(file_url):
         
         file_doc = frappe.get_all("File",
             filters={"file_url": file_url},
-            fields=["name", "file_name", "file_url", "file_size", "content_type",
+            fields=["name", "file_name", "file_url", "file_size", "file_type",
                    "is_private", "folder", "creation", "modified"],
             limit=1
         )
@@ -549,6 +797,30 @@ def get_file_by_url(file_url):
         }
 
 # Helper Functions
+
+def has_administrator_role(user_name):
+    """
+    Check if user has Administrator role profile or is the Administrator user
+    """
+    try:
+        if user_name == "Administrator":
+            return True
+            
+        user_doc = frappe.get_doc("User", user_name)
+        
+        # Check if user has Administrator role profile
+        if hasattr(user_doc, 'role_profile_name') and user_doc.role_profile_name:
+            role_profile = frappe.get_doc("Role Profile", user_doc.role_profile_name)
+            admin_roles = [role.role for role in role_profile.roles if role.role in ["Administrator", "System Manager"]]
+            if admin_roles:
+                return True
+        
+        # Fallback: Check individual roles
+        user_roles = [role.role for role in user_doc.roles]
+        return "Administrator" in user_roles or "System Manager" in user_roles
+        
+    except Exception:
+        return False
 
 def validate_file(uploaded_file):
     """
@@ -598,7 +870,7 @@ def has_file_access(file_doc):
     Check if current user has access to file
     """
     user = frappe.session.user
-    if user == "Administrator":
+    if has_administrator_role(user):
         return True
     
     if not file_doc.is_private:
@@ -632,7 +904,7 @@ def has_file_access_by_url(file_url):
         file_info = file_doc[0]
 
         user = frappe.session.user
-        if user == "Administrator":
+        if has_administrator_role(user):
             return True
 
         if not file_info.is_private:
@@ -651,19 +923,38 @@ def has_file_access_by_url(file_url):
 
 # Image Processing APIs (Optional)
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
 def resize_image(file_name, width=None, height=None, maintain_aspect_ratio=True):
     """
-    Resize an image file
+    Resize an image file by file_name (not document name)
     Requires Pillow library
     """
     try:
+        current_user = get_authenticated_user()
+        if not current_user or current_user == "Guest":
+            frappe.throw("Authentication required", frappe.AuthenticationError)
+        
         from PIL import Image
         
-        file_doc = frappe.get_doc("File", file_name)
+        # Find file by file_name field, not by document name
+        file_docs = frappe.get_all("File", 
+            filters={"file_name": file_name},
+            fields=["name"],
+            limit=1
+        )
+        
+        if not file_docs:
+            return {
+                "success": False,
+                "message": "File not found"
+            }
+        
+        # Get the full document using the document name
+        file_doc = frappe.get_doc("File", file_docs[0].name)
         
         # Check if it's an image
-        if not file_doc.content_type or not file_doc.content_type.startswith('image/'):
+        if not file_doc.file_type or not file_doc.file_type.startswith('image/'):
             return {
                 "success": False,
                 "message": "File is not an image"
@@ -730,8 +1021,10 @@ def resize_image(file_name, width=None, height=None, maintain_aspect_ratio=True)
             
             # Save as new file
             new_file_doc = save_file(
-                filename=new_filename,
+                fname=new_filename,
                 content=output.read(),
+                dt=None,
+                dn=None,
                 folder=file_doc.folder,
                 is_private=file_doc.is_private
             )

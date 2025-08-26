@@ -92,6 +92,13 @@ website_context = {
 # before_install = "rockettradeline.install.before_install"
 after_install = "rockettradeline.setup.after_install"
 
+# Patches
+# --------
+patches = [
+    "rockettradeline.patches.create_customer_additional_fields",
+    "rockettradeline.patches.add_customer_flags"
+]
+
 # Uninstallation
 # ------------
 
@@ -144,13 +151,11 @@ after_install = "rockettradeline.setup.after_install"
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+    "Payment Request": {
+        "on_update": "rockettradeline.rockettradeline.doctype.payment_request.payment_request.on_payment_request_update",
+    }
+}
 
 # Scheduled Tasks
 # ---------------
