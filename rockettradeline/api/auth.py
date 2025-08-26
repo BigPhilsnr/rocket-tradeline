@@ -406,6 +406,67 @@ def validate_token_auth(token):
 
 # Email Verification Functions
 
+# Email Template Functions
+
+def get_email_header(logo_height="60px", logo_width="200px"):
+    """Generate consistent email header with Rocket Tradeline branding"""
+    site_url = frappe.utils.get_url()
+    site_logo = f"{site_url}/assets/rockettradeline/logo.png"
+    
+    return f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+        <div style="background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+            <!-- Header with Logo -->
+            <div style="padding: 30px 30px 20px 30px; text-align: center;">
+                <div style="margin-bottom: 20px;">
+                    <img src="{site_logo}" alt="Rocket Tradeline" style="max-height: {logo_height}; max-width: {logo_width};" />
+                </div>
+            </div>
+            
+            <!-- Main Content -->
+            <div style="padding: 0 30px 30px 30px;">"""
+
+def get_email_footer(recipient_email):
+    """Generate consistent email footer with Rocket Tradeline branding"""
+    site_url = frappe.utils.get_url()
+    site_logo = f"{site_url}/assets/rockettradeline/logo.png"
+    
+    return f"""
+            </div>
+            
+            <!-- Footer with Logo and Social Links -->
+            <div style="background-color: #f9fafb; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
+                <!-- Bottom Logo -->
+                <div style="margin-bottom: 20px;">
+                    <img src="{site_logo}" alt="Rocket Tradeline" style="max-height: 40px; max-width: 150px;" />
+                </div>
+                
+                <!-- Social Media Icons -->
+                <div style="margin-bottom: 20px;">
+                    <a href="#" style="display: inline-block; margin: 0 10px; text-decoration: none;">
+                        <div style="width: 32px; height: 32px; background-color: #9ca3af; border-radius: 4px; display: inline-block;"></div>
+                    </a>
+                    <a href="#" style="display: inline-block; margin: 0 10px; text-decoration: none;">
+                        <div style="width: 32px; height: 32px; background-color: #9ca3af; border-radius: 4px; display: inline-block;"></div>
+                    </a>
+                    <a href="#" style="display: inline-block; margin: 0 10px; text-decoration: none;">
+                        <div style="width: 32px; height: 32px; background-color: #9ca3af; border-radius: 4px; display: inline-block;"></div>
+                    </a>
+                </div>
+                
+                <!-- Footer Text -->
+                <div style="font-size: 12px; color: #9ca3af;">
+                    <p style="margin: 0 0 10px 0;">
+                        This email was sent to {recipient_email}. If you'd rather not receive this kind of email, you can 
+                        <a href="#" style="color: #17B26A; text-decoration: none;">unsubscribe</a> or 
+                        <a href="#" style="color: #17B26A; text-decoration: none;">manage your email preferences</a>.
+                    </p>
+                    <p style="margin: 0;">© 2025 Rocket Tradelines. All rights reserved</p>
+                </div>
+            </div>
+        </div>
+    </div>"""
+
 def generate_verification_token(email):
     """Generate email verification token"""
     try:
@@ -462,78 +523,33 @@ def send_verification_email(user_email, full_name, verification_token):
             
         # Send email using Frappe's email queue (queue regardless of password config)
         try:
-            # Create the email content with Rocket Tradeline branding
-            site_url = frappe.utils.get_url()
-            site_logo = f"{site_url}/assets/rockettradeline/logo.png"
+            # Create the email content with Rocket Tradeline branding using header/footer functions
+            email_header = get_email_header()
+            email_footer = get_email_footer(user_email)
             
-            email_content = f"""
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
-                <div style="background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                    <!-- Header with Logo -->
-                    <div style="padding: 30px 30px 20px 30px; text-align: center;">
-                        <div style="margin-bottom: 20px;">
-                            <img src="{site_logo}" alt="Rocket Tradeline" style="max-height: 60px; max-width: 200px;" />
-                        </div>
-                    </div>
-                    
-                    <!-- Main Content -->
-                    <div style="padding: 0 30px 30px 30px;">
-                        <div style="margin-bottom: 25px;">
-                            <p style="color: #374151; font-size: 16px; margin: 0 0 10px 0;">Hi {full_name},</p>
-                            <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 0;">
-                                You just signed up for an account at Rocket Tradelines. To complete your registration and buy tradelines, click the button below.
-                            </p>
-                        </div>
-                        
-                        <!-- Verify Button -->
-                        <div style="text-align: center; margin: 30px 0;">
-                            <a href="{verification_link}" style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; 
-                                      border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">
-                                Verify email
-                            </a>
-                        </div>
-                        
-                        <div style="margin-top: 25px;">
-                            <p style="color: #6b7280; margin: 0; font-size: 16px;">
-                                Thanks,<br>
-                                The team
-                            </p>
-                        </div>
-                    </div>
-                    
-                    <!-- Footer with Logo and Social Links -->
-                    <div style="background-color: #f9fafb; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
-                        <!-- Bottom Logo -->
-                        <div style="margin-bottom: 20px;">
-                            <img src="{site_logo}" alt="Rocket Tradeline" style="max-height: 40px; max-width: 150px;" />
-                        </div>
-                        
-                        <!-- Social Media Icons -->
-                        <div style="margin-bottom: 20px;">
-                            <a href="#" style="display: inline-block; margin: 0 10px; text-decoration: none;">
-                                <div style="width: 32px; height: 32px; background-color: #9ca3af; border-radius: 4px; display: inline-block;"></div>
-                            </a>
-                            <a href="#" style="display: inline-block; margin: 0 10px; text-decoration: none;">
-                                <div style="width: 32px; height: 32px; background-color: #9ca3af; border-radius: 4px; display: inline-block;"></div>
-                            </a>
-                            <a href="#" style="display: inline-block; margin: 0 10px; text-decoration: none;">
-                                <div style="width: 32px; height: 32px; background-color: #9ca3af; border-radius: 4px; display: inline-block;"></div>
-                            </a>
-                        </div>
-                        
-                        <!-- Footer Text -->
-                        <div style="font-size: 12px; color: #9ca3af;">
-                            <p style="margin: 0 0 10px 0;">
-                                This email was sent to {user_email}. If you'd rather not receive this kind of email, you can 
-                                <a href="#" style="color: #17B26A; text-decoration: none;">unsubscribe</a> or 
-                                <a href="#" style="color: #17B26A; text-decoration: none;">manage your email preferences</a>.
-                            </p>
-                            <p style="margin: 0;">© 2025 Rocket Tradelines. All rights reserved</p>
-                        </div>
-                    </div>
+            email_content = f"""{email_header}
+                <div style="margin-bottom: 25px;">
+                    <p style="color: #374151; font-size: 16px; margin: 0 0 10px 0;">Hi {full_name},</p>
+                    <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 0;">
+                        You just signed up for an account at Rocket Tradelines. To complete your registration and buy tradelines, click the button below.
+                    </p>
                 </div>
-            </div>
-            """
+                
+                <!-- Verify Button -->
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="{verification_link}" style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; 
+                              border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">
+                        Verify email
+                    </a>
+                </div>
+                
+                <div style="margin-top: 25px;">
+                    <p style="color: #6b7280; margin: 0; font-size: 16px;">
+                        Thanks,<br>
+                        The team
+                    </p>
+                </div>
+            {email_footer}"""
             
             frappe.sendmail(
                 recipients=[user_email],

@@ -4,28 +4,43 @@ from frappe.utils import flt, now_datetime
 from decimal import Decimal
 import json
 import re
-from .auth import jwt_required, get_authenticated_user
+from .auth import jwt_required, get_authenticated_user, get_email_header, get_email_footer
 
 
 def send_payment_request_notification_email(payment_request_doc):
     """Send email notification to admin when payment request is created"""
     try:
-        # Format payment request details for email
-        payment_details = f"""
-        <h3>New Payment Request Created</h3>
-        <p><strong>Payment Request ID:</strong> {payment_request_doc.name}</p>
-        <p><strong>Customer:</strong> {payment_request_doc.customer_name} ({payment_request_doc.customer_email})</p>
-        <p><strong>Payment Method:</strong> {payment_request_doc.payment_method}</p>
-        <p><strong>Amount:</strong> ${payment_request_doc.amount:.2f}</p>
-        <p><strong>Total Amount:</strong> ${payment_request_doc.total_amount:.2f}</p>
-        <p><strong>Cart ID:</strong> {payment_request_doc.cart_id}</p>
-        <p><strong>Status:</strong> {payment_request_doc.status}</p>
-        <p><strong>Created At:</strong> {payment_request_doc.created_at}</p>
+        # Get consistent email header and footer
+        email_header = get_email_header()
+        email_footer = get_email_footer("info@rockettradeline.com")
         
-        <h4>Action Required:</h4>
-        <p>Please log in to the admin portal to review and approve this payment request.</p>
-        <p><a href="https://rocket-app.tiberbuhealth.com/app/payment-request/{payment_request_doc.name}">View Payment Request</a></p>
-        """
+        # Format payment request details for email
+        payment_details = f"""{email_header}
+        <h3 style="color: #374151; margin: 0 0 20px 0;">New Payment Request Created</h3>
+        <div style="background-color: #f9fafb; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
+            <p style="margin: 5px 0;"><strong>Payment Request ID:</strong> {payment_request_doc.name}</p>
+            <p style="margin: 5px 0;"><strong>Customer:</strong> {payment_request_doc.customer_name} ({payment_request_doc.customer_email})</p>
+            <p style="margin: 5px 0;"><strong>Payment Method:</strong> {payment_request_doc.payment_method}</p>
+            <p style="margin: 5px 0;"><strong>Amount:</strong> ${payment_request_doc.amount:.2f}</p>
+            <p style="margin: 5px 0;"><strong>Total Amount:</strong> ${payment_request_doc.total_amount:.2f}</p>
+            <p style="margin: 5px 0;"><strong>Cart ID:</strong> {payment_request_doc.cart_id}</p>
+            <p style="margin: 5px 0;"><strong>Status:</strong> {payment_request_doc.status}</p>
+            <p style="margin: 5px 0;"><strong>Created At:</strong> {payment_request_doc.created_at}</p>
+        </div>
+        
+        <h4 style="color: #374151; margin: 20px 0 15px 0;">Action Required:</h4>
+        <p style="color: #6b7280; line-height: 1.6; margin: 0 0 20px 0;">
+            Please log in to the admin portal to review and approve this payment request.
+        </p>
+        
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="https://rocket-app.tiberbuhealth.com/app/payment-request/{payment_request_doc.name}" 
+               style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; 
+                      border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">
+                View Payment Request
+            </a>
+        </div>
+        {email_footer}"""
         
         # Send email to admin
         frappe.sendmail(
@@ -54,39 +69,59 @@ def send_payment_approval_email(payment_request_doc):
         # Format tradeline details
         tradeline_details = ""
         if cart_items:
-            tradeline_details = "<h4>Your Tradelines:</h4><ul>"
+            tradeline_details = "<h4 style='color: #374151; margin: 20px 0 15px 0;'>Your Tradelines:</h4><ul style='margin: 0 0 20px 20px; padding: 0;'>"
             for item in cart_items:
-                tradeline_details += f"<li>{item.tradeline_name} - ${item.amount:.2f}</li>"
+                tradeline_details += f"<li style='margin: 5px 0; color: #6b7280;'>{item.tradeline_name} - ${item.amount:.2f}</li>"
             tradeline_details += "</ul>"
         
+        # Get consistent email header and footer
+        email_header = get_email_header()
+        email_footer = get_email_footer(payment_request_doc.customer_email)
+        
         # Format approval email
-        approval_message = f"""
-        <h3>Payment Approved - Tradelines Activated!</h3>
-        <p>Dear {payment_request_doc.customer_name},</p>
+        approval_message = f"""{email_header}
+        <h3 style="color: #17B26A; margin: 0 0 20px 0;">Payment Approved - Tradelines Activated!</h3>
+        <p style="color: #374151; font-size: 16px; margin: 0 0 10px 0;">Dear {payment_request_doc.customer_name},</p>
         
-        <p>Great news! Your payment request has been approved and your tradelines are now active in your portal.</p>
+        <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 0 0 25px 0;">
+            Great news! Your payment request has been approved and your tradelines are now active in your portal.
+        </p>
         
-        <h4>Payment Details:</h4>
-        <p><strong>Payment Request ID:</strong> {payment_request_doc.name}</p>
-        <p><strong>Payment Method:</strong> {payment_request_doc.payment_method}</p>
-        <p><strong>Total Amount Paid:</strong> ${payment_request_doc.total_amount:.2f}</p>
-        <p><strong>Transaction ID:</strong> {payment_request_doc.transaction_id or 'N/A'}</p>
-        <p><strong>Approved At:</strong> {payment_request_doc.approved_at}</p>
+        <h4 style="color: #374151; margin: 20px 0 15px 0;">Payment Details:</h4>
+        <div style="background-color: #f9fafb; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
+            <p style="margin: 5px 0;"><strong>Payment Request ID:</strong> {payment_request_doc.name}</p>
+            <p style="margin: 5px 0;"><strong>Payment Method:</strong> {payment_request_doc.payment_method}</p>
+            <p style="margin: 5px 0;"><strong>Total Amount Paid:</strong> ${payment_request_doc.total_amount:.2f}</p>
+            <p style="margin: 5px 0;"><strong>Transaction ID:</strong> {payment_request_doc.transaction_id or 'N/A'}</p>
+            <p style="margin: 5px 0;"><strong>Approved At:</strong> {payment_request_doc.approved_at}</p>
+        </div>
         
         {tradeline_details}
         
-        <h4>Next Steps:</h4>
-        <p>1. Log in to your portal to view your active tradelines</p>
-        <p>2. Monitor your credit report for the new tradelines (typically appears within 30-60 days)</p>
-        <p>3. Contact our support team if you have any questions</p>
+        <h4 style="color: #374151; margin: 20px 0 15px 0;">Next Steps:</h4>
+        <ol style="margin: 0 0 25px 20px; padding: 0; color: #6b7280; line-height: 1.6;">
+            <li style="margin: 5px 0;">Log in to your portal to view your active tradelines</li>
+            <li style="margin: 5px 0;">Monitor your credit report for the new tradelines (typically appears within 30-60 days)</li>
+            <li style="margin: 5px 0;">Contact our support team if you have any questions</li>
+        </ol>
         
-        <p><a href="https://rocket-app.tiberbuhealth.com/app">Access Your Portal</a></p>
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="https://rocket-app.tiberbuhealth.com/app" 
+               style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; 
+                      border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">
+                Access Your Portal
+            </a>
+        </div>
         
-        <p>Thank you for choosing RocketTradeline!</p>
+        <p style="color: #6b7280; margin: 25px 0 0 0; font-size: 16px;">
+            Thank you for choosing RocketTradeline!
+        </p>
         
-        <hr>
-        <p><small>If you have any questions, please contact us at info@rockettradeline.com</small></p>
-        """
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 25px 0;">
+        <p style="font-size: 12px; color: #9ca3af; margin: 0;">
+            If you have any questions, please contact us at info@rockettradeline.com
+        </p>
+        {email_footer}"""
         
         # Send email to customer
         frappe.sendmail(
