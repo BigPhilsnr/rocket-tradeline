@@ -160,23 +160,23 @@ doc_events = {
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"rockettradeline.tasks.all"
-# 	],
-# 	"daily": [
-# 		"rockettradeline.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"rockettradeline.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"rockettradeline.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"rockettradeline.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	# "all": [
+	# 	"rockettradeline.tasks.all"
+	# ],
+	# "daily": [
+	# 	"rockettradeline.tasks.daily"
+	# ],
+	"hourly": [
+		"rockettradeline.tasks.check_and_expire_client_tradelines"
+	],
+	# "weekly": [
+	# 	"rockettradeline.tasks.weekly"
+	# ],
+	# "monthly": [
+	# 	"rockettradeline.tasks.monthly"
+	# ],
+}
 
 # Testing
 # -------

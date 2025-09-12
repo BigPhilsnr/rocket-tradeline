@@ -1,0 +1,1547 @@
+{
+	"info": {
+		"_postman_id": "complete-auth-api-collection-2025-updated",
+		"name": "Rocket Tradeline API - Complete Collection Updated 2025",
+		"description": "Complete and fully updated API collection for Rocket Tradeline APIs with proper JWT authentication, customer flags management, marketing/newsletter APIs, updated feedback & survey system with 4 questions, file management APIs, payment system, and comprehensive examples. Updated August 2025 with all current endpoints including Client Tradelines automation.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "rockettradeline"
+	},
+	"item": [
+		{
+			"name": "🔐 Authentication & User Management",
+			"item": [
+				{
+					"name": "Sign Up",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// Test for successful signup",
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"// Parse and validate response",
+									"const response = pm.response.json();",
+									"pm.test('Response has success message', function () {",
+									"    pm.expect(response).to.have.property('message');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"john.doe@example.com\",\n    \"password\": \"SecurePassword123!\",\n    \"full_name\": \"John Doe\",\n    \"phone\": \"+1234567890\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.auth.sign_up",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.auth.sign_up"
+							]
+						},
+						"description": "Create a new user account. Sends verification email and creates customer record automatically."
+					}
+				},
+				{
+					"name": "Verify Email",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.auth.verify_email?token=verification_token_here",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.auth.verify_email"
+							],
+							"query": [
+								{
+									"key": "token",
+									"value": "verification_token_here"
+								}
+							]
+						},
+						"description": "Verify user email address using token from verification email. Returns HTML page with success/error message."
+					}
+				},
+				{
+					"name": "Resend Verification Email",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"john.doe@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.auth.resend_verification_email",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.auth.resend_verification_email"
+							]
+						},
+						"description": "Resend verification email to user's email address."
+					}
+				},
+				{
+					"name": "Login (JWT)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// Parse response and save token",
+									"const response = pm.response.json();",
+									"if (response.message && response.message.success && response.message.token) {",
+									"    pm.collectionVariables.set('jwt_token', 'Bearer ' + response.message.token);",
+									"    pm.collectionVariables.set('jwt_token_raw', response.message.token);",
+									"    console.log('✅ JWT token saved to collection variables');",
+									"} else {",
+									"    console.log('❌ Login failed or no token received');",
+									"}",
+									"",
+									"pm.test('Login successful', function () {",
+									"    pm.expect(response.message.success).to.be.true;",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"usr\": \"philmaxsnr@gmail.com\",\n    \"pwd\": \"velo@2023!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.auth.login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.auth.login"
+							]
+						},
+						"description": "Login with email/username and password. Returns JWT token for API authentication. If email is not verified, automatically sends verification email."
+					}
+				},
+				{
+					"name": "Get Profile (JWT)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.auth.get_profile",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.auth.get_profile"
+							]
+						},
+						"description": "Get current user profile with customer information and business flags (is_seller, has_signed_agreement, is_questionnaire_filled). Uses JWT authentication via X-Authorization header."
+					}
+				},
+				{
+					"name": "Update Profile",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"full_name\": \"John Doe Updated\",\n    \"phone\": \"+1987654321\",\n    \"gender\": \"Male\",\n    \"date_of_birth\": \"1985-12-25\",\n    \"social_security_number\": \"123-45-6789\",\n    \"address_line1\": \"123 Main Street\",\n    \"address_line2\": \"Suite 456\",\n    \"city\": \"New York\",\n    \"state\": \"NY\",\n    \"zipcode\": \"10001\",\n    \"country\": \"United States\",\n    \"address_type\": \"Personal\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.auth.update_profile",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.auth.update_profile"
+							]
+						},
+						"description": "Update user profile, customer record, and address. Uses JWT authentication."
+					}
+				},
+				{
+					"name": "Update Customer Flags",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"is_seller\": 1,\n    \"has_signed_agreement\": 1,\n    \"is_questionnaire_filled\": 0\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.auth.update_customer_flags",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.auth.update_customer_flags"
+							]
+						},
+						"description": "Update customer business flags (is_seller, has_signed_agreement, is_questionnaire_filled). Requires JWT authentication."
+					}
+				},
+				{
+					"name": "Get Customer Status",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.auth.get_customer_status",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.auth.get_customer_status"
+							]
+						},
+						"description": "Get current customer business status flags and completion dates. Requires JWT authentication."
+					}
+				},
+				{
+					"name": "Refresh JWT Token",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.auth.refresh_token",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.auth.refresh_token"
+							]
+						},
+						"description": "Refresh JWT token for authenticated user. Returns new token with extended expiry."
+					}
+				}
+			]
+		},
+		{
+			"name": "📧 Marketing & Newsletter APIs",
+			"item": [
+				{
+					"name": "Subscribe to Newsletter (Guest Allowed)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"newsletter@example.com\",\n    \"full_name\": \"Newsletter Subscriber\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.marketing.subscribe_newsletter",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.marketing.subscribe_newsletter"
+							]
+						},
+						"description": "Subscribe to the Website Subscribers newsletter. No authentication required - guest access allowed."
+					}
+				},
+				{
+					"name": "Check Newsletter Subscription (Guest Allowed)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"newsletter@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.marketing.check_subscription",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.marketing.check_subscription"
+							]
+						},
+						"description": "Check if an email is subscribed to the newsletter. No authentication required."
+					}
+				},
+				{
+					"name": "Unsubscribe from Newsletter (Guest Allowed)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"newsletter@example.com\",\n    \"token\": \"optional_unsubscribe_token\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.marketing.unsubscribe_newsletter",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.marketing.unsubscribe_newsletter"
+							]
+						},
+						"description": "Unsubscribe from the newsletter. No authentication required - guest access allowed."
+					}
+				},
+				{
+					"name": "Subscribe to Email Group (Guest Allowed)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"subscriber@example.com\",\n    \"email_group\": \"Product Updates\",\n    \"full_name\": \"Product Subscriber\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.marketing.subscribe_email_group",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.marketing.subscribe_email_group"
+							]
+						},
+						"description": "Subscribe to any email group. No authentication required - guest access allowed."
+					}
+				},
+				{
+					"name": "Get Newsletter Subscribers (Admin)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.marketing.get_subscribers?limit=50&start=0",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.marketing.get_subscribers"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "50"
+								},
+								{
+									"key": "start",
+									"value": "0"
+								}
+							]
+						},
+						"description": "Get paginated list of newsletter subscribers. Requires authentication."
+					}
+				},
+				{
+					"name": "Get All Email Groups (Admin)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.marketing.get_email_groups",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.marketing.get_email_groups"
+							]
+						},
+						"description": "Get list of all email groups with subscriber counts. Requires authentication."
+					}
+				},
+				{
+					"name": "Create Email Group (Admin)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"VIP Customers\",\n    \"description\": \"Exclusive updates for VIP customers\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.marketing.create_email_group",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.marketing.create_email_group"
+							]
+						},
+						"description": "Create a new email group. Requires authentication and admin permissions."
+					}
+				}
+			]
+		},
+		{
+			"name": "📝 Updated Feedback & Survey APIs (4 Questions)",
+			"item": [
+				{
+					"name": "Get Feedback Form Configuration (Guest Allowed)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.feedback.get_feedback_form_config",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.feedback.get_feedback_form_config"
+							]
+						},
+						"description": "Get feedback form configuration with 4 updated questions and validation rules. No authentication required."
+					}
+				},
+				{
+					"name": "Submit Feedback Form (JWT Required - Auto Updates Customer)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"question_1_why_buying\": \"I want to buy a home or property\",\n    \"question_2_importance\": \"To boost your credit score\",\n    \"question_3_credit_score\": \"Fair credit: 630 to 689\",\n    \"question_4_derogatory_marks\": \"Late payments that are around 30 days or more past due\",\n    \"first_name\": \"John\",\n    \"last_name\": \"Doe\",\n    \"email\": \"john.doe@example.com\",\n    \"phone\": \"+1234567890\",\n    \"source\": \"Website Form\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.feedback.submit_feedback",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.feedback.submit_feedback"
+							]
+						},
+						"description": "Submit feedback form with 4 updated questionnaire responses and contact information. Requires JWT authentication. Automatically updates customer's is_questionnaire_filled flag to true upon successful submission."
+					}
+				},
+				{
+					"name": "Get Feedback Submissions (Admin)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.feedback.get_feedback_submissions?limit=50&start=0&status=New&search=john",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.feedback.get_feedback_submissions"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "50"
+								},
+								{
+									"key": "start",
+									"value": "0"
+								},
+								{
+									"key": "status",
+									"value": "New"
+								},
+								{
+									"key": "search",
+									"value": "john"
+								}
+							]
+						},
+						"description": "Get paginated list of feedback submissions with filtering and search. Includes all 4 question responses. Requires authentication and admin permissions."
+					}
+				},
+				{
+					"name": "Get Feedback Details (Admin)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.feedback.get_feedback_details?feedback_id=feedback_id_here",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.feedback.get_feedback_details"
+							],
+							"query": [
+								{
+									"key": "feedback_id",
+									"value": "feedback_id_here"
+								}
+							]
+						},
+						"description": "Get detailed information about a specific feedback submission with all 4 questions. Requires authentication and admin permissions."
+					}
+				},
+				{
+					"name": "Update Feedback Status (Admin)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"feedback_id\": \"feedback_id_here\",\n    \"status\": \"Contacted\",\n    \"notes\": \"Initial contact made, customer is interested in home purchase tradeline\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.feedback.update_feedback_status",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.feedback.update_feedback_status"
+							]
+						},
+						"description": "Update feedback submission status and add notes. Valid statuses: New, Contacted, Converted, Closed. Requires authentication and admin permissions."
+					}
+				},
+				{
+					"name": "Get Feedback Statistics (Admin)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.feedback.get_feedback_statistics",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.feedback.get_feedback_statistics"
+							]
+						},
+						"description": "Get comprehensive feedback statistics and analytics including submission counts, status distribution, and trends for all 4 questions. Requires authentication and admin permissions."
+					}
+				}
+			]
+		},
+		{
+			"name": "📁 File Management APIs",
+			"item": [
+				{
+					"name": "Upload File (JWT Required)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": []
+								},
+								{
+									"key": "doctype",
+									"value": "Customer",
+									"type": "text"
+								},
+								{
+									"key": "docname",
+									"value": "CUST-00001",
+									"type": "text"
+								},
+								{
+									"key": "file_name",
+									"value": "dl_front",
+									"type": "text",
+									"description": "Allowed: dl_front, dl_back, proof_of_address"
+								},
+								{
+									"key": "is_public",
+									"value": "0",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.files.upload_file",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.files.upload_file"
+							]
+						},
+						"description": "Upload file with custom naming and restrictions. Only allows dl_front, dl_back, proof_of_address file names. Requires JWT authentication."
+					}
+				},
+				{
+					"name": "Get File Info (JWT Required)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.files.get_file_info?file_name=Customer_CUST-00001_dl_front.pdf",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.files.get_file_info"
+							],
+							"query": [
+								{
+									"key": "file_name",
+									"value": "Customer_CUST-00001_dl_front.pdf"
+								}
+							]
+						},
+						"description": "Get file information by file name. Requires JWT authentication."
+					}
+				},
+				{
+					"name": "Get All Files (Admin Only)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.files.get_all_files?limit=50&start=0&search=Customer",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.files.get_all_files"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "50"
+								},
+								{
+									"key": "start",
+									"value": "0"
+								},
+								{
+									"key": "search",
+									"value": "Customer"
+								}
+							]
+						},
+						"description": "Get all files with pagination and search. Admin access only."
+					}
+				},
+				{
+					"name": "Delete File (JWT Required)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"file_name\": \"Customer_CUST-00001_dl_front.pdf\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.files.delete_file",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.files.delete_file"
+							]
+						},
+						"description": "Delete file by file name. Requires JWT authentication."
+					}
+				}
+			]
+		},
+		{
+			"name": "💰 Tradeline Management",
+			"item": [
+				{
+					"name": "Get Tradelines (Guest Allowed)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.tradeline.get_tradelines?limit=20&start=0&search=chase&filters={\"min_price\":100,\"max_price\":1000}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.tradeline.get_tradelines"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "20"
+								},
+								{
+									"key": "start",
+									"value": "0"
+								},
+								{
+									"key": "search",
+									"value": "chase"
+								},
+								{
+									"key": "filters",
+									"value": "{\"min_price\":100,\"max_price\":1000}"
+								}
+							]
+						},
+						"description": "Get list of available tradelines with filtering and pagination. No authentication required."
+					}
+				},
+				{
+					"name": "Get Tradeline Details (Guest Allowed)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.tradeline.get_tradeline?tradeline_id=TL-00001",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.tradeline.get_tradeline"
+							],
+							"query": [
+								{
+									"key": "tradeline_id",
+									"value": "TL-00001"
+								}
+							]
+						},
+						"description": "Get detailed information about a specific tradeline. No authentication required."
+					}
+				}
+			]
+		},
+		{
+			"name": "🛒 Shopping Cart APIs",
+			"item": [
+				{
+					"name": "Create Cart (JWT Required)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.cart.create_cart",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.cart.create_cart"
+							]
+						},
+						"description": "Create a new shopping cart for the current user. Returns existing active cart if found."
+					}
+				},
+				{
+					"name": "Get User Cart (JWT Required)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.cart.get_cart",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.cart.get_cart"
+							]
+						},
+						"description": "Get the current user's active cart with all items and calculations."
+					}
+				},
+				{
+					"name": "Add Item to Cart (JWT Required)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"tradeline_id\": \"TL-00001\",\n    \"quantity\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.cart.add_to_cart",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.cart.add_to_cart"
+							]
+						},
+						"description": "Add a tradeline to the user's shopping cart with specified quantity."
+					}
+				},
+				{
+					"name": "Update Cart Item (JWT Required)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"item_id\": \"item_name_here\",\n    \"quantity\": 2\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.cart.update_cart_item",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.cart.update_cart_item"
+							]
+						},
+						"description": "Update quantity of an item in the cart."
+					}
+				},
+				{
+					"name": "Remove Item from Cart (JWT Required)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"item_id\": \"item_name_here\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.cart.remove_from_cart",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.cart.remove_from_cart"
+							]
+						},
+						"description": "Remove an item from the shopping cart."
+					}
+				},
+				{
+					"name": "Clear Cart (JWT Required)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.cart.clear_cart",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.cart.clear_cart"
+							]
+						},
+						"description": "Clear all items from the user's cart."
+					}
+				}
+			]
+		},
+		{
+			"name": "💳 Payment System APIs",
+			"item": [
+				{
+					"name": "Create Manual Payment Request (JWT Required)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"cart_id\": \"CART-00001\",\n    \"payment_method\": \"Bank Transfer\",\n    \"amount\": 500.00,\n    \"fees\": 25.00,\n    \"customer_email\": \"customer@example.com\",\n    \"notes\": \"Manual payment request for tradeline purchase\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.payment.create_manual_payment_request",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.payment.create_manual_payment_request"
+							]
+						},
+						"description": "Create a manual payment request with file upload support. Automatically creates Client Tradelines when payment is completed."
+					}
+				},
+				{
+					"name": "Get Payment Requests (JWT Required)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.payment.get_payment_requests?limit=50&start=0&status=Pending",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.payment.get_payment_requests"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "50"
+								},
+								{
+									"key": "start",
+									"value": "0"
+								},
+								{
+									"key": "status",
+									"value": "Pending"
+								}
+							]
+						},
+						"description": "Get payment requests with filtering and pagination."
+					}
+				},
+				{
+					"name": "Update Payment Status (JWT Required)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"payment_id\": \"PAY-00001\",\n    \"status\": \"Completed\",\n    \"transaction_id\": \"TXN123456789\",\n    \"notes\": \"Payment verified and processed\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.payment.update_payment_status",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.payment.update_payment_status"
+							]
+						},
+						"description": "Update payment request status. When status is set to 'Completed', automatically triggers Client Tradelines creation."
+					}
+				},
+				{
+					"name": "Get Payment Details (JWT Required)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.payment.get_payment_details?payment_id=PAY-00001",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.payment.get_payment_details"
+							],
+							"query": [
+								{
+									"key": "payment_id",
+									"value": "PAY-00001"
+								}
+							]
+						},
+						"description": "Get detailed information about a specific payment request."
+					}
+				}
+			]
+		},
+		{
+			"name": "🧪 JWT Testing Endpoints",
+			"item": [
+				{
+					"name": "Test JWT Validation",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.auth.test_jwt",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.auth.test_jwt"
+							]
+						},
+						"description": "Test JWT token validation and debugging. Shows token payload and validation status."
+					}
+				},
+				{
+					"name": "Public Endpoint",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.auth.public_endpoint",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.auth.public_endpoint"
+							]
+						},
+						"description": "Public endpoint that requires no authentication. Used for testing."
+					}
+				},
+				{
+					"name": "Protected Endpoint (JWT Required)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.auth.protected_endpoint",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.auth.protected_endpoint"
+							]
+						},
+						"description": "Protected endpoint that requires valid JWT token. Returns authenticated user info."
+					}
+				},
+				{
+					"name": "Admin Only Endpoint",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.auth.admin_endpoint",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.auth.admin_endpoint"
+							]
+						},
+						"description": "Admin-only endpoint that requires System Manager or Administrator role."
+					}
+				}
+			]
+		},
+		{
+			"name": "⚙️ Admin Operations",
+			"item": [
+				{
+					"name": "Get Users (Admin)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.auth.get_users?limit=50&start=0",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.auth.get_users"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "50"
+								},
+								{
+									"key": "start",
+									"value": "0"
+								}
+							]
+						},
+						"description": "Get list of users with customer information. Requires Admin role."
+					}
+				},
+				{
+					"name": "Create Customer for User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"user_email\": \"existing@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.auth.create_customer_for_user",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.auth.create_customer_for_user"
+							]
+						},
+						"description": "Create customer record for existing user. Admin only."
+					}
+				},
+				{
+					"name": "Update User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Authorization",
+								"value": "{{jwt_token_raw}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"user_id\": \"user@example.com\",\n    \"full_name\": \"Updated Name\",\n    \"enabled\": 1,\n    \"roles\": [\"Customer\", \"System Manager\"]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/rockettradeline.api.auth.update_user",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"rockettradeline.api.auth.update_user"
+							]
+						},
+						"description": "Update user information. Admin only."
+					}
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Pre-request script for all endpoints",
+					"console.log('Making request to:', pm.request.url.toString());",
+					"",
+					"// Log authentication headers for debugging",
+					"const authHeader = pm.request.headers.get('Authorization');",
+					"const xAuthHeader = pm.request.headers.get('X-Authorization');",
+					"",
+					"if (authHeader) {",
+					"    console.log('Authorization header present');",
+					"}",
+					"if (xAuthHeader) {",
+					"    console.log('X-Authorization header present');",
+					"}"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Post-request script for all endpoints",
+					"console.log('Response status:', pm.response.code);",
+					"",
+					"// Log error responses for debugging",
+					"if (pm.response.code >= 400) {",
+					"    console.log('Error response body:', pm.response.text());",
+					"}",
+					"",
+					"// Log successful authentication responses",
+					"if (pm.response.code === 200 && pm.response.json) {",
+					"    try {",
+					"        const response = pm.response.json();",
+					"        if (response.message && response.message.success) {",
+					"            console.log('✅ Success:', response.message.message || 'Operation completed');",
+					"        }",
+					"    } catch (e) {",
+					"        // Response is not JSON, ignore",
+					"    }",
+					"}",
+					"",
+					"// Auto-save JWT token from login responses",
+					"if (pm.response.code === 200 && pm.request.url.toString().includes('login')) {",
+					"    try {",
+					"        const response = pm.response.json();",
+					"        if (response.message && response.message.token) {",
+					"            pm.collectionVariables.set('jwt_token', 'Bearer ' + response.message.token);",
+					"            pm.collectionVariables.set('jwt_token_raw', response.message.token);",
+					"            console.log('🔐 JWT token auto-saved from login response');",
+					"        }",
+					"    } catch (e) {",
+					"        // Response parsing failed, ignore",
+					"    }",
+					"}"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://rockettradeline.com",
+			"type": "string"
+		},
+		{
+			"key": "jwt_token",
+			"value": "",
+			"type": "string",
+			"description": "JWT token with Bearer prefix (e.g., 'Bearer eyJ...')"
+		},
+		{
+			"key": "jwt_token_raw",
+			"value": "",
+			"type": "string",
+			"description": "JWT token without Bearer prefix (e.g., 'eyJ...')"
+		}
+	]
+}

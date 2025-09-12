@@ -1,9 +1,4 @@
-def get_authenticated_user():
-    """
-    Returns the authenticated user set by jwt_required, or None if not authenticated.
-    """
-    user = frappe.session.user if hasattr(frappe.session, 'user') and frappe.session.user != "Guest" else None
-    return user
+
 import frappe
 from frappe import _
 from frappe.auth import LoginManager
@@ -18,7 +13,17 @@ from datetime import datetime, timedelta
 import jwt
 import os
 from functools import wraps
+from .utils import is_administrator
+from frappe.utils.file_manager import save_file
+from werkzeug.utils import secure_filename
 
+
+def get_authenticated_user():
+    """
+    Returns the authenticated user set by jwt_required, or None if not authenticated.
+    """
+    user = frappe.session.user if hasattr(frappe.session, 'user') and frappe.session.user != "Guest" else None
+    return user
 # Route Protection Decorators
 
 def jwt_required(allow_guest=False):
@@ -100,7 +105,8 @@ def jwt_required(allow_guest=False):
                     frappe.local.response.http_status_code = 401
                     return {
                         "success": False,
-                        "message": "Authentication failed"
+                        "message": "Authentication failed",
+                        "error": str(e)
                     }
                 else:
                     # Set guest user and continue
@@ -578,6 +584,48 @@ def is_email_verified(email):
     except:
         return False
 
+
+def get_roles_from_role_profile(role_profile_name, fallback_roles=None):
+    """Return list of role dicts for a given Role Profile name.
+
+    Returns a list suitable for assigning to User.roles, e.g.
+    [{"role": "Customer"}, {"role": "Sales User"}].
+
+    If the role profile is missing or an error occurs, returns fallback_roles
+    (defaults to [{"role": "Customer"}]).
+    """
+    if fallback_roles is None:
+        fallback_roles = [{"role": "Customer"}]
+
+    try:
+        if not role_profile_name:
+            return fallback_roles
+
+        # Ensure Role Profile exists
+        if not frappe.db.exists("Role Profile", role_profile_name):
+            return fallback_roles
+
+        rp = frappe.get_doc("Role Profile", role_profile_name)
+
+        roles = []
+        # Role Profile usually has a child table named 'roles' with field 'role'
+        for r in getattr(rp, 'roles', []) or []:
+            # support dict-like or object rows
+            if isinstance(r, dict):
+                role_name = r.get('role')
+            else:
+                role_name = getattr(r, 'role', None)
+
+            if role_name:
+                roles.append({"role": role_name})
+
+        if roles:
+            return roles
+
+        return fallback_roles
+    except Exception:
+        return fallback_roles
+
 # Authentication APIs
 
 @frappe.whitelist(allow_guest=True)
@@ -744,7 +792,7 @@ def google_login(id_token):
         }
 
 @frappe.whitelist(allow_guest=True)
-def sign_up(email, full_name, password=None, phone=None):
+def sign_up(email, full_name, password=None, phone=None, is_seller=0, is_buyer=0, is_broker=0 ):
     """
     Sign up new user, send verification email, and create customer record
     """
@@ -772,7 +820,18 @@ def sign_up(email, full_name, password=None, phone=None):
                 "success": False,
                 "message": "Password must be at least 6 characters long"
             }
+            
+            
+        role_profile_name = "Tradeline Buyer"
         
+        if int(is_seller) and not int(is_buyer) and not int(is_broker):
+            role_profile_name = "Tradeline Seller"
+        elif int(is_broker) and not int(is_buyer) and not int(is_seller):
+            role_profile_name = "Tradeline Broker"
+        
+        # Determine roles from the selected role profile. Fall back to Customer role on errors.
+        roles_list = get_roles_from_role_profile(role_profile_name)
+
         # Create user (initially unverified)
         user = frappe.get_doc({
             "doctype": "User",
@@ -781,8 +840,9 @@ def sign_up(email, full_name, password=None, phone=None):
             "first_name": full_name.split()[0] if full_name else email,
             "last_name": full_name.split()[1] if full_name and len(full_name.split()) > 1 else None,
             "enabled": 1,
+            "role_profile_name": role_profile_name,
             "user_type": "Website User",
-            "roles": [{"role": "Customer"}],
+            "roles": roles_list,
             "email_verified": 0,  # Initially unverified
             "send_welcome_email": 0  # Prevent default welcome email
         })
@@ -825,7 +885,11 @@ def sign_up(email, full_name, password=None, phone=None):
             "email_id": email,
             "mobile_no": phone,
             "user": user.name,
-            "is_primary_contact": 1
+            # account_manager intentionally omitted for self sign-ups; only set when broker/admin creates client
+            "is_primary_contact": 1,
+            "is_seller": int(is_seller),
+            "is_buyer": int(is_buyer),
+            "is_broker": int(is_broker)
         })
         
         customer.insert(ignore_permissions=True)
@@ -856,6 +920,97 @@ def sign_up(email, full_name, password=None, phone=None):
             "success": False,
             "message": "An error occurred during registration. Please try again."
         }
+
+
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
+@require_roles("Tradeline Broker", "System Manager")
+def broker_login_as_customer(email):
+    """
+    Allow a broker to obtain a JWT and login-as for a customer they manage.
+
+    Verifies that the Customer with the provided email_id exists and that
+    its `account_manager` equals the currently authenticated broker (via
+    get_authenticated_user()). Returns the same response shape as `login()`
+    including an authorization_token for the customer user.
+    """
+    try:
+        broker_user = get_authenticated_user()
+        if not broker_user:
+            frappe.local.response.http_status_code = 401
+            return {"success": False, "message": "Authentication required"}
+
+        # Find customer by email_id
+        customer_list = frappe.get_all("Customer",
+            filters={"email_id": email},
+            fields=["name", "account_manager", "customer_name", "customer_type", "email_id", "mobile_no", "territory"],
+            limit=1
+        )
+
+        if not customer_list:
+            frappe.local.response.http_status_code = 404
+            return {"success": False, "message": "Customer not found"}
+
+        customer_row = customer_list[0]
+
+        # Ensure the broker manages this customer
+        if not customer_row.get('account_manager') or customer_row.get('account_manager') != broker_user:
+            frappe.local.response.http_status_code = 403
+            return {"success": False, "message": "Not authorized to act as this customer"}
+
+        # Resolve associated User for the customer
+        user_name = email
+        if not user_name:
+            # Fallback: find User by email
+            users = frappe.get_all("User", filters={"email": email}, fields=["name"], limit=1)
+            if users:
+                user_name = users[0].name
+
+        if not user_name or not frappe.db.exists("User", user_name):
+            frappe.local.response.http_status_code = 404
+            return {"success": False, "message": "User for this customer not found"}
+
+        user_doc = frappe.get_doc("User", user_name)
+        if not user_doc.enabled:
+            frappe.local.response.http_status_code = 403
+            return {"success": False, "message": "Customer account is disabled"}
+
+        # Generate JWT token for the customer user
+        jwt_token = generate_jwt_token(user_doc.name)
+
+        # Prepare response mirroring login()
+        response_data = {
+            "success": True,
+            "message": "Login successful",
+            "authorization_token": f"Bearer {jwt_token}",
+            "token_type": "Bearer",
+            "expires_in": 86400,  # 24 hours
+            "user": {
+                "name": user_doc.name,
+                "email": user_doc.email,
+                "full_name": user_doc.full_name,
+                "user_image": user_doc.user_image,
+                "phone": user_doc.phone,
+                "role_profile_name": user_doc.role_profile_name,
+                "roles": [role.role for role in user_doc.roles]
+            }
+        }
+
+        # Attach the customer info if available
+        response_data["customer"] = {
+            "name": customer_row.get('name'),
+            "customer_name": customer_row.get('customer_name'),
+            "customer_type": customer_row.get('customer_type'),
+            "email_id": customer_row.get('email_id'),
+            "mobile_no": customer_row.get('mobile_no'),
+            "territory": customer_row.get('territory')
+        }
+
+        return response_data
+    except Exception as e:
+        frappe.log_error(f"Broker impersonation error: {str(e)}")
+        frappe.local.response.http_status_code = 500
+        return {"success": False, "message": "An error occurred while attempting to impersonate the customer.", "error": str(e)}
 
 @frappe.whitelist()
 def logout():
@@ -1272,13 +1427,49 @@ def update_profile(full_name=None, phone=None, user_image=None, gender=None, dat
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def update_customer_flags(is_seller=None, has_signed_agreement=None, is_questionnaire_filled=None):
+def update_customer_flags(is_seller=None, has_signed_agreement=None, is_questionnaire_filled=None, user=None, password= None, customer_details=None):
     """
     Update customer flags (is_seller, has_signed_agreement, is_questionnaire_filled)
     Automatically authenticated via JWT decorator
     """
     try:
+        
+       
         user_name = get_authenticated_user()
+
+        is_admin = is_administrator(user_name)
+        
+        if not is_admin and password:
+            frappe.local.response.http_status_code = 401
+            return {"success": False, "message": "Authentication failed. Only administrators can update passwords for other users."}
+        
+        if is_admin and password and user:
+            # Admin is updating another user's password
+            if not frappe.db.exists("User", user):
+                frappe.local.response.http_status_code = 404
+                return {"success": False, "message": "User to update not found."}
+            user_doc = frappe.get_doc("User", user)
+            user_doc.new_password = password
+            user_doc.save(ignore_permissions=True)
+            frappe.db.commit()
+            return {
+                "success": True,
+                "message": "Password updated successfully"
+            }
+            
+            user_name = user  # Switch context to the user whose password was changed
+        elif password and not is_admin:
+            # Non-admin user changing their own password
+            user_doc = frappe.get_doc("User", user_name)
+            user_doc.new_password = password
+            user_doc.save(ignore_permissions=True)
+            frappe.db.commit()
+            
+            return {
+                "success": True,
+                "message": "Password updated successfully"
+            }
+            
         if not user_name:
             frappe.local.response.http_status_code = 401
             return {"success": False, "message": "Authentication required"}
@@ -1307,11 +1498,34 @@ def update_customer_flags(is_seller=None, has_signed_agreement=None, is_question
         
         # Track what was updated
         updated_fields = []
-        
+        if customer_details:
+            customer.customer_details = customer_details
+            updated_fields.append("customer_details")
         # Update flags if provided
         if is_seller is not None:
             customer.is_seller = int(is_seller)
             updated_fields.append("is_seller")
+            
+            # Update user Role Profile when is_seller is true (but not for Administrators)
+            if int(is_seller):
+                try:
+                    # Check if user is an Administrator using the imported function
+                    is_admin = is_administrator(user.name)
+                    
+                    if not is_admin:
+                        # Check if "Tradeline Seller" Role Profile exists
+                        if frappe.db.exists("Role Profile", "Tradeline Seller"):
+                            # Set the Role Profile for the user
+                            frappe.db.set_value("User", user.name, "role_profile_name", "Tradeline Seller")
+                            frappe.db.commit()
+                            updated_fields.append("role_profile (Tradeline Seller)")
+                        else:
+                            frappe.log_error("Role Profile 'Tradeline Seller' not found", "Update Customer Flags")
+                    else:
+                        # Log that role profile was not set for admin user
+                        frappe.logger().info(f"Role Profile not set for Administrator user: {user.name}")
+                except Exception as role_error:
+                    frappe.log_error(f"Failed to set Role Profile: {str(role_error)}", "Update Customer Flags")
         
         if has_signed_agreement is not None:
             customer.has_signed_agreement = int(has_signed_agreement)
@@ -1559,7 +1773,7 @@ def create_customer_for_user(user_email):
         
         # Check if customer already exists
         existing_customer = frappe.get_all("Customer", 
-            filters={"user": user_email},
+            filters={"email_id": user_email},
             limit=1
         )
         
@@ -1582,6 +1796,7 @@ def create_customer_for_user(user_email):
             "email_id": user.email,
             "mobile_no": user.phone,
             "user": user.name,
+            "account_manager": frappe.session.user if getattr(frappe.session, 'user', None) and frappe.session.user != 'Guest' else None,
             "is_primary_contact": 1
         })
         
@@ -1604,6 +1819,168 @@ def create_customer_for_user(user_email):
             "success": False,
             "message": str(e)
         }
+
+
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
+@require_roles("Tradeline Broker", "System Manager")
+def broker_create_client(email, full_name, phone=None, ssn=None,
+                         address_line1=None, address_line2=None, city=None,
+                         state=None, zipcode=None, country="United States",
+                         dl_front=None, dl_back=None, proof_of_residence=None,
+                         role_profile_name=None):
+    """Allow a broker (authenticated) to create a buyer client.
+
+    - Password is auto-generated and returned in the response.
+    - Required: email, full_name, ssn, address_line1, city, state, zipcode
+    - Files can be uploaded via multipart form-data as fields: dl_front, dl_back, proof_of_residence
+      (these should be file uploads in frappe.request.files)
+    """
+    try:
+        # Basic validations
+        if not email or not validate_email_address(email):
+            frappe.local.response.http_status_code = 400
+            return {"success": False, "message": "Valid email is required"}
+
+        if frappe.db.exists("User", email):
+            frappe.local.response.http_status_code = 409
+            return {"success": False, "message": "User already exists"}
+
+        if not full_name:
+            frappe.local.response.http_status_code = 400
+            return {"success": False, "message": "Full name is required"}
+
+        # Required buyer fields
+        if not ssn:
+            frappe.local.response.http_status_code = 400
+            return {"success": False, "message": "SSN (tax id) is required"}
+
+        if not address_line1 or not city or not state or not zipcode:
+            frappe.local.response.http_status_code = 400
+            return {"success": False, "message": "Complete address (line1, city, state, zipcode) is required"}
+
+        # Default role profile for broker-created clients is Tradeline Buyer
+        role_profile_name = role_profile_name or "Tradeline Buyer"
+
+        # Auto-generate password
+        generated_password = random_string(12)
+
+        # Determine roles
+        roles_list = get_roles_from_role_profile(role_profile_name)
+
+        # Create User (auto-verified)
+        user = frappe.get_doc({
+            "doctype": "User",
+            "email": email,
+            "full_name": full_name,
+            "first_name": full_name.split()[0] if full_name else email,
+            "last_name": full_name.split()[1] if full_name and len(full_name.split()) > 1 else None,
+            "enabled": 1,
+            "role_profile_name": role_profile_name,
+            "user_type": "Website User",
+            "roles": roles_list,
+            "email_verified": 1,  # broker-created accounts are treated as verified
+            "email_verified_at": now_datetime(),
+            "send_welcome_email": 0
+        })
+
+        user.new_password = generated_password
+        if phone:
+            user.phone = phone
+
+        user.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        # Create Customer
+        customer = frappe.get_doc({
+            "doctype": "Customer",
+            "customer_name": full_name,
+            "customer_type": "Individual",
+            "customer_group": "Individual",
+            "territory": "All Territories",
+            "email_id": email,
+            "mobile_no": phone,
+            "user": user.name,
+            "account_manager": frappe.session.user if getattr(frappe.session, 'user', None) and frappe.session.user != 'Guest' else None,
+            "is_primary_contact": 1,
+            "is_seller": 0,
+            "is_buyer": 1,
+            "is_broker": 0,
+            "tax_id": ssn
+        })
+
+        customer.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        # Create address
+        address_result = create_or_update_customer_address(
+            customer=customer,
+            address_line1=address_line1,
+            address_line2=address_line2,
+            city=city,
+            state=state,
+            zipcode=zipcode,
+            country=country,
+            address_type="Personal",
+            phone=phone,
+            email=email
+        )
+
+        # Attach files if uploaded in request.files
+        attached_files = {}
+        files = frappe.request.files or {}
+        for field_name in ("dl_front", "dl_back", "proof_of_residence"):
+            file_obj = files.get(field_name)
+            if file_obj:
+                try:
+                    # save_file expects (fname, content, doctype=None, docname=None, is_private=False)
+                    fname = secure_filename(file_obj.filename) if hasattr(file_obj, 'filename') else file_obj.filename
+                    content = file_obj.read()
+                    saved = save_file(fname, content, doctype="Customer", docname=customer.name, is_private=0)
+                    attached_files[field_name] = saved.get('file_url') if isinstance(saved, dict) and saved.get('file_url') else getattr(saved, 'file_url', None)
+                except Exception as file_err:
+                    frappe.log_error(f"Failed to attach {field_name} for {email}: {str(file_err)}")
+
+        # Generate signature key for client signature
+        signature_key = frappe.generate_hash(length=20)
+        
+        # Update user with signature key
+        user.reset_password_key = signature_key  # Reusing reset_password_key field
+        user.last_reset_password_key_generated_on = now_datetime()
+        user.save(ignore_permissions=True)
+        
+        frappe.db.commit()
+        
+        # Send signature email to client
+        try:
+            send_client_signature_email(email, full_name, signature_key)
+        except Exception as e:
+            frappe.log_error(f"Failed to send signature email to {email}: {str(e)}", "Signature Email Error")
+
+        return {
+            "success": True,
+            "message": "Client created successfully. Signature email sent to client.",
+            "user": {
+                "name": user.name,
+                "email": user.email,
+                "full_name": user.full_name,
+                "password": generated_password
+            },
+            "customer": {
+                "name": customer.name,
+                "customer_name": customer.customer_name,
+                "email_id": customer.email_id,
+                "mobile_no": customer.mobile_no
+            },
+            "address": address_result,
+            "files": attached_files,
+            "signature_key": signature_key  # For testing purposes
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Broker create client error: {str(e)}")
+        frappe.local.response.http_status_code = 500
+        return {"success": False, "message": str(e)}
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
@@ -1649,6 +2026,34 @@ def get_users(limit=20, start=0, search=None):
             "success": False,
             "message": str(e)
         }
+    
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
+@require_roles("Tradeline Broker", "Administrator", "System Manager")
+def get_broker_customers(limit=50, start=0, search=None):
+    """Return customers where account_manager is the logged-in broker"""
+    try:
+        broker = get_authenticated_user()
+        if not broker or broker == "Guest":
+            frappe.local.response.http_status_code = 401
+            return {"success": False, "message": "Authentication required"}
+
+        filters = {"account_manager": broker}
+        if search:
+            filters["customer_name"] = ["like", f"%{search}%"]
+
+        customers = frappe.get_all("Customer",
+            filters=filters,
+            fields=["name", "customer_name", "email_id", "mobile_no",  "creation"],
+            limit=limit,
+            start=start,
+            order_by="creation desc"
+        )
+
+        return {"success": True, "customers": customers}
+    except Exception as e:
+        frappe.local.response.http_status_code = 500
+        return {"success": False, "message": str(e)}
 
 @frappe.whitelist()
 def update_user(user_id, full_name=None, enabled=None, roles=None):
@@ -2418,4 +2823,577 @@ def test_send_verification_email_simple(email):
             "success": False,
             "message": f"Error testing email: {str(e)}",
             "traceback": traceback.format_exc()
+        }
+
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
+def test_permissions():
+    # Implement permission testing logic here
+    doc = frappe.get_doc('User Task', '1')
+    doc.title = 'Test'
+    doc.save()
+
+
+@frappe.whitelist(allow_guest=True)
+def send_reset_password_link(email):
+    """
+    Send reset password link to user's email
+    
+    Args:
+        email (str): User's email address
+        
+    Returns:
+        dict: Success/failure response with message
+    """
+    try:
+        # Validate email format
+        if not email:
+            return {
+                "success": False,
+                "message": "Email address is required"
+            }
+        
+        if not validate_email_address(email):
+            return {
+                "success": False,
+                "message": "Invalid email address format"
+            }
+        
+        # Check if user exists
+        user_exists = frappe.db.exists("User", {"email": email, "enabled": 1})
+        if not user_exists:
+            # For security, don't reveal if user exists or not
+            return {
+                "success": True,
+                "message": "If the email address is registered, you will receive a password reset link shortly."
+            }
+        
+        # Get user document
+        user_doc = frappe.get_doc("User", email)
+        
+        # Generate reset password key
+        reset_key = frappe.generate_hash(length=20)
+        
+        # Update user with reset key and expiry
+        user_doc.reset_password_key = reset_key
+        user_doc.last_reset_password_key_generated_on = now_datetime()
+        user_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        
+        # Create reset password link
+        reset_link = f"https://staging.rockettradeline.com/reset-password?key={reset_key}"
+        
+        # Get user's full name
+        full_name = user_doc.full_name or user_doc.first_name or email.split('@')[0]
+        
+        # Get consistent email header and footer
+        email_header = get_email_header()
+        email_footer = get_email_footer(email)
+        
+        # Prepare email content
+        subject = "Password Reset Request - RocketTradeline"
+        
+        message = f"""{email_header}
+        <h3 style="color: #374151; margin: 0 0 20px 0;">Password Reset Request</h3>
+        <p style="color: #374151; font-size: 16px; margin: 0 0 10px 0;">Hello {full_name},</p>
+        
+        <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 0 0 25px 0;">
+            We received a request to reset your password for your RocketTradeline account. If you made this request, click the button below to reset your password.
+        </p>
+        
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="{reset_link}" 
+               style="background-color: #17B26A; color: white; padding: 14px 28px; text-decoration: none; 
+                      border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">
+                Reset Your Password
+            </a>
+        </div>
+        
+        <div style="background-color: #f9fafb; border-left: 4px solid #17B26A; padding: 15px; border-radius: 6px; margin: 25px 0;">
+            <p style="margin: 0 0 10px 0; color: #374151; font-weight: 600;">
+                🔒 Security Information:
+            </p>
+            <ul style="margin: 0; padding-left: 20px; color: #6b7280; line-height: 1.6; font-size: 14px;">
+                <li style="margin: 5px 0;">This link will expire in 24 hours for security reasons</li>
+                <li style="margin: 5px 0;">You can only use this link once</li>
+                <li style="margin: 5px 0;">If you didn't request this reset, please ignore this email</li>
+            </ul>
+        </div>
+        
+        <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 25px 0 0 0;">
+            If the button above doesn't work, you can copy and paste this link into your browser:
+        </p>
+        
+        <div style="background-color: #f3f4f6; padding: 15px; border-radius: 6px; margin: 15px 0; word-break: break-all;">
+            <p style="margin: 0; color: #374151; font-family: monospace; font-size: 14px;">
+                {reset_link}
+            </p>
+        </div>
+        
+        <div style="background-color: #fef2f2; border: 1px solid #fecaca; padding: 15px; border-radius: 6px; margin: 25px 0;">
+            <p style="margin: 0; color: #DC2626; font-weight: 600; font-size: 14px;">
+                ⚠️ Important: If you did not request a password reset, please contact our support team immediately.
+            </p>
+        </div>
+        
+        <p style="color: #6b7280; margin: 25px 0 0 0; font-size: 16px;">
+            If you need assistance, please contact our support team at info@rockettradeline.com
+        </p>
+        {email_footer}"""
+        
+        # Send email
+        frappe.sendmail(
+            recipients=[email],
+            subject=subject,
+            message=message,
+            header=["Password Reset Request", "blue"]
+        )
+        
+        # Log the password reset request
+        frappe.logger().info(f"Password reset link sent to {email}")
+        
+        return {
+            "success": True,
+            "message": "If the email address is registered, you will receive a password reset link shortly."
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Password reset link generation failed: {str(e)}", "Password Reset Error")
+        return {
+            "success": False,
+            "message": "An error occurred while processing your request. Please try again later."
+        }
+
+
+@frappe.whitelist(allow_guest=True)
+def validate_reset_password_key(key):
+    """
+    Validate reset password key
+    
+    Args:
+        key (str): Reset password key
+        
+    Returns:
+        dict: Validation result with user email if valid
+    """
+    try:
+        if not key:
+            return {
+                "success": False,
+                "message": "Reset key is required"
+            }
+        
+        # Find user with this reset key
+        user_data = frappe.db.get_value(
+            "User",
+            {"reset_password_key": key, "enabled": 1},
+            ["email", "last_reset_password_key_generated_on"],
+            as_dict=True
+        )
+        
+        if not user_data:
+            return {
+                "success": False,
+                "message": "Invalid or expired reset key"
+            }
+        
+        # Check if key has expired (24 hours)
+        if user_data.last_reset_password_key_generated_on:
+            key_generated_time = user_data.last_reset_password_key_generated_on
+            expiry_time = key_generated_time + timedelta(hours=24)
+            
+            if now_datetime() > expiry_time:
+                return {
+                    "success": False,
+                    "message": "Reset key has expired. Please request a new one."
+                }
+        
+        return {
+            "success": True,
+            "message": "Reset key is valid",
+            "email": user_data.email
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Reset key validation failed: {str(e)}", "Reset Key Validation Error")
+        return {
+            "success": False,
+            "message": "An error occurred while validating the reset key"
+        }
+
+
+@frappe.whitelist(allow_guest=True)
+def reset_password_with_key(key, new_password):
+    """
+    Reset password using reset key
+    
+    Args:
+        key (str): Reset password key
+        new_password (str): New password
+        
+    Returns:
+        dict: Success/failure response
+    """
+    try:
+        if not key or not new_password:
+            return {
+                "success": False,
+                "message": "Reset key and new password are required"
+            }
+        
+        # Validate the reset key first
+        validation_result = validate_reset_password_key(key)
+        if not validation_result.get("success"):
+            return validation_result
+        
+        email = validation_result.get("email")
+        
+        # Validate password strength
+        if len(new_password) < 8:
+            return {
+                "success": False,
+                "message": "Password must be at least 8 characters long"
+            }
+        
+        # Get user document
+        user_doc = frappe.get_doc("User", email)
+        
+        # Update password
+        user_doc.new_password = new_password
+        
+        # Clear reset key to prevent reuse
+        user_doc.reset_password_key = None
+        user_doc.last_reset_password_key_generated_on = None
+        
+        # Save user
+        user_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        
+        # Log successful password reset
+        frappe.logger().info(f"Password successfully reset for user: {email}")
+        
+        return {
+            "success": True,
+            "message": "Password has been reset successfully. You can now log in with your new password."
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Password reset failed: {str(e)}", "Password Reset Error")
+        return {
+            "success": False,
+            "message": "An error occurred while resetting your password. Please try again."
+        }
+
+
+def send_client_signature_email(client_email, full_name, signature_key):
+    """
+    Send signature request email to client
+    
+    Args:
+        client_email (str): Client's email address
+        full_name (str): Client's full name
+        signature_key (str): Unique signature key
+    """
+    try:
+        # Create signature link
+        signature_link = f"https://staging.rockettradeline.com/client-signature?key={signature_key}"
+        
+        # Get consistent email header and footer
+        email_header = get_email_header()
+        email_footer = get_email_footer(client_email)
+        
+        # Prepare email content
+        subject = "Complete Your Account Setup - Signature Required"
+        
+        message = f"""{email_header}
+        <h3 style="color: #374151; margin: 0 0 20px 0;">📝 Complete Your Account Setup</h3>
+        <p style="color: #374151; font-size: 16px; margin: 0 0 10px 0;">Hello {full_name},</p>
+        
+        <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 0 0 25px 0;">
+            Your RocketTradeline account has been created by your broker. To complete your account setup and start purchasing tradelines, we need your digital signature.
+        </p>
+        
+        <div style="background-color: #f0f9ff; border-left: 4px solid #17B26A; padding: 20px; border-radius: 6px; margin: 25px 0;">
+            <h4 style="color: #374151; margin: 0 0 15px 0;">What you need to do:</h4>
+            <ul style="margin: 0; padding-left: 20px; color: #6b7280; line-height: 1.6;">
+                <li style="margin: 8px 0;">Click the "Complete Setup" button below</li>
+                <li style="margin: 8px 0;">Upload your digital signature</li>
+                <li style="margin: 8px 0;">Start purchasing tradelines immediately</li>
+            </ul>
+        </div>
+        
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="{signature_link}" 
+               style="background-color: #17B26A; color: white; padding: 14px 28px; text-decoration: none; 
+                      border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">
+                Complete Account Setup
+            </a>
+        </div>
+        
+        <div style="background-color: #f9fafb; border-left: 4px solid #6b7280; padding: 15px; border-radius: 6px; margin: 25px 0;">
+            <p style="margin: 0 0 10px 0; color: #374151; font-weight: 600;">
+                🔒 Security Information:
+            </p>
+            <ul style="margin: 0; padding-left: 20px; color: #6b7280; line-height: 1.6; font-size: 14px;">
+                <li style="margin: 5px 0;">This link will expire in 24 hours for security reasons</li>
+                <li style="margin: 5px 0;">You can only use this link once</li>
+                <li style="margin: 5px 0;">Your signature will be securely stored and encrypted</li>
+            </ul>
+        </div>
+        
+        <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 25px 0 0 0;">
+            If the button above doesn't work, you can copy and paste this link into your browser:
+        </p>
+        
+        <div style="background-color: #f3f4f6; padding: 15px; border-radius: 6px; margin: 15px 0; word-break: break-all;">
+            <p style="margin: 0; color: #374151; font-family: monospace; font-size: 14px;">
+                {signature_link}
+            </p>
+        </div>
+        
+        <div style="background-color: #fef3c7; border: 1px solid #fbbf24; padding: 15px; border-radius: 6px; margin: 25px 0;">
+            <p style="margin: 0; color: #92400e; font-weight: 600; font-size: 14px;">
+                ⏰ Important: Complete your signature within 24 hours to activate your account.
+            </p>
+        </div>
+        
+        <p style="color: #6b7280; margin: 25px 0 0 0; font-size: 16px;">
+            If you need assistance, please contact your broker or our support team at info@rockettradeline.com
+        </p>
+        {email_footer}"""
+        
+        # Send email
+        frappe.sendmail(
+            recipients=[client_email],
+            subject=subject,
+            message=message,
+            header=["Account Setup Required", "green"]
+        )
+        
+        # Log the signature request
+        frappe.logger().info(f"Signature request email sent to {client_email}")
+        
+    except Exception as e:
+        frappe.log_error(f"Client signature email failed for {client_email}: {str(e)}", "Signature Email Error")
+        raise e
+
+
+@frappe.whitelist(allow_guest=True)
+def validate_signature_key(key):
+    """
+    Validate client signature key
+    
+    Args:
+        key (str): Signature key
+        
+    Returns:
+        dict: Validation result with user email if valid
+    """
+    try:
+        if not key:
+            return {
+                "success": False,
+                "message": "Signature key is required"
+            }
+        
+        # Find user with this signature key (using reset_password_key field)
+        user_data = frappe.db.get_value(
+            "User",
+            {"reset_password_key": key, "enabled": 1},
+            ["email", "last_reset_password_key_generated_on", "full_name"],
+            as_dict=True
+        )
+        
+        if not user_data:
+            return {
+                "success": False,
+                "message": "Invalid or expired signature key"
+            }
+        
+        # Check if key has expired (24 hours)
+        if user_data.last_reset_password_key_generated_on:
+            key_generated_time = user_data.last_reset_password_key_generated_on
+            expiry_time = key_generated_time + timedelta(hours=24)
+            
+            if now_datetime() > expiry_time:
+                return {
+                    "success": False,
+                    "message": "Signature key has expired. Please contact your broker for a new one."
+                }
+        
+        # Check if signature is already completed
+        customer_data = frappe.db.get_value(
+            "Customer",
+            {"email_id": user_data.email},
+            ["has_signed_agreement", "name"],
+            as_dict=True
+        )
+        
+        if customer_data and customer_data.has_signed_agreement:
+            return {
+                "success": False,
+                "message": "Signature has already been completed for this account."
+            }
+        
+        return {
+            "success": True,
+            "message": "Signature key is valid",
+            "email": user_data.email,
+            "full_name": user_data.full_name,
+            "customer_id": customer_data.name if customer_data else None
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Signature key validation failed: {str(e)}", "Signature Key Validation Error")
+        return {
+            "success": False,
+            "message": "An error occurred while validating the signature key"
+        }
+
+
+@frappe.whitelist(allow_guest=True)
+def upload_client_signature(key, file_content=None, filename=None):
+    """
+    Upload client signature using signature key
+    
+    Args:
+        key (str): Signature key
+        file_content (str): Base64 encoded file content or None for form upload
+        filename (str): Original filename or None for form upload
+        
+    Returns:
+        dict: Success/failure response
+    """
+    try:
+        if not key:
+            return {
+                "success": False,
+                "message": "Signature key is required"
+            }
+        
+        # Validate the signature key first
+        validation_result = validate_signature_key(key)
+        if not validation_result.get("success"):
+            return validation_result
+        
+        email = validation_result.get("email")
+        customer_id = validation_result.get("customer_id")
+        
+        # Note: Customer record is optional - signature is saved against User
+        
+        # Handle file upload
+        uploaded_file = None
+        content = None
+        fname = None
+        
+        # Check for form upload first
+        files = frappe.request.files
+        if files and 'file' in files:
+            uploaded_file = files['file']
+            if uploaded_file.filename and uploaded_file.filename != '':
+                fname = secure_filename(uploaded_file.filename)
+                content = uploaded_file.read()
+        
+        # Check for base64 upload
+        elif file_content and filename:
+            try:
+                # Handle data URL format (e.g., "data:image/png;base64,iVBORw0KGgo...")
+                if file_content.startswith('data:'):
+                    file_content = file_content.split(',')[1]
+                
+                content = base64.b64decode(file_content)
+                fname = secure_filename(filename)
+            except Exception as e:
+                return {
+                    "success": False,
+                    "message": f"Invalid file content: {str(e)}"
+                }
+        
+        if not content or not fname:
+            return {
+                "success": False,
+                "message": "No file provided. Use 'file' in form data or 'file_content' + 'filename' parameters"
+            }
+        
+        # Validate file size (max 5MB)
+        if len(content) > 5 * 1024 * 1024:
+            return {
+                "success": False,
+                "message": "File size too large. Maximum size is 5MB"
+            }
+        
+        # Validate file type (images and PDFs only)
+        allowed_extensions = ['.png', '.jpg', '.jpeg', '.pdf', '.gif']
+        file_ext = os.path.splitext(fname)[1].lower()
+        if file_ext not in allowed_extensions:
+            return {
+                "success": False,
+                "message": f"File type {file_ext} not allowed. Allowed types: {', '.join(allowed_extensions)}"
+            }
+        
+        # Generate filename for signature
+        signature_filename = f"client_signature_{email.replace('@', '_').replace('.', '_')}_{frappe.generate_hash(length=8)}{file_ext}"
+        
+        # Save file using Frappe's file manager - attach to User instead of Customer
+        file_doc = save_file(
+            fname=signature_filename,
+            content=content,
+            dt="User",
+            dn=email,
+            folder="Home",
+            is_private=1  # Keep signatures private
+        )
+        
+        # Update customer record (if exists)
+        if customer_id:
+            customer_doc = frappe.get_doc("Customer", customer_id)
+            customer_doc.has_signed_agreement = 1
+            # customer_doc.signature_date = now_datetime()
+            
+            # # Add a note about the signature
+            # signature_note = f"\n[{now_datetime().strftime('%Y-%m-%d %H:%M:%S')}] Digital signature uploaded via broker registration"
+            # existing_notes = customer_doc.notes or ""
+            # customer_doc.notes = existing_notes + signature_note
+            
+            customer_doc.save(ignore_permissions=True)
+        
+        # Clear the signature key to prevent reuse
+        user_doc = frappe.get_doc("User", email)
+        user_doc.reset_password_key = None
+        user_doc.last_reset_password_key_generated_on = None
+        user_doc.save(ignore_permissions=True)
+        
+        frappe.db.commit()
+        
+        # Log successful signature upload
+        frappe.logger().info(f"Client signature uploaded successfully for {email}")
+        
+        return {
+            "success": True,
+            "message": "Signature uploaded successfully! Your account setup is now complete.",
+            "file": {
+                "name": file_doc.name,
+                "file_name": file_doc.file_name,
+                "file_url": file_doc.file_url,
+                "file_size": file_doc.file_size,
+                "attached_to": "User",
+                "attached_to_name": email
+            },
+            "user": {
+                "email": email,
+                "signature_uploaded": True,
+                "signature_date": now_datetime()
+            },
+            "customer": {
+                "id": customer_id,
+                "has_signed_agreement": True if customer_id else None,
+                "signature_date": now_datetime() if customer_id else None
+            } if customer_id else None
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Client signature upload failed: {str(e)}", "Signature Upload Error")
+        return {
+            "success": False,
+            "message": f"An error occurred while uploading your signature: {str(e)}"
         }

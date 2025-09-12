@@ -9,6 +9,11 @@ from frappe.utils.file_manager import save_file
 from werkzeug.utils import secure_filename
 import hashlib
 from .auth import jwt_required, get_authenticated_user
+from .utils import is_administrator
+from datetime import datetime, timedelta
+from datetime import datetime, timedelta
+                 
+
 
 # File Upload APIs
 
@@ -47,14 +52,14 @@ def upload_file():
             
             # Check if user is trying to upload public file (only admin allowed)
             is_private = int(form_data.get('is_private', 1))  # Default to private
-            if not is_private and not has_administrator_role(current_user):
+            if not is_private and not is_administrator(current_user):
                 return {
                     "success": False,
                     "message": "Only administrators can upload public files"
                 }
             
             # Validate file_name if provided
-            allowed_file_names = ['dl_front', 'dl_back', 'proof_of_address', 'client_signature']
+            allowed_file_names = ['dl_front', 'dl_back', 'proof_of_address', 'client_signature','proof_of_enrollment', "proof_of_refund", "credit_report", "authorized_user_guide", "privacy_policy", "terms_conditions", "refund_policy"]
             provided_file_name = form_data.get('file_name')
             if provided_file_name and provided_file_name not in allowed_file_names:
                 return {
@@ -102,6 +107,50 @@ def upload_file():
                 is_private=is_private
             )
             
+            # Handle proof_of_enrollment automation for Client Tradeline
+            provided_file_name = form_data.get('file_name')
+            if provided_file_name == 'proof_of_enrollment' and doctype == 'Client Tradelines' and docname:
+                try:
+                    # Get current datetime
+                    completion_date = datetime.now()
+                    # Calculate expiry date (61 days after completion)
+                    expiry_date = completion_date + timedelta(days=61)
+                    
+                    # Update the Client Tradeline document
+                    client_tradeline_doc = frappe.get_doc('Client Tradelines', docname)
+                    client_tradeline_doc.completion_date = completion_date
+                    client_tradeline_doc.expiry_date = expiry_date
+                    client_tradeline_doc.save()
+                    
+                    frappe.db.commit()
+                    
+                except Exception as e:
+                    frappe.log_error(f"Error updating Client Tradeline {docname}: {str(e)}", "Proof of Enrollment Automation")
+            
+            # Handle proof_of_refund automation for Client Tradeline
+            if provided_file_name == 'proof_of_refund' and doctype == 'Client Tradelines' and docname:
+                try:
+                    # Get the Client Tradeline document
+                    client_tradeline_doc = frappe.get_doc('Client Tradelines', docname)
+                    
+                    # Set status to Refunded
+                    client_tradeline_doc.status = "Refunded"
+                    client_tradeline_doc.save()
+                    
+                    # Update associated Payment Request status
+                    if client_tradeline_doc.payment_request:
+                        payment_request_doc = frappe.get_doc('Payment Request', client_tradeline_doc.payment_request)
+                        payment_request_doc.status = "Refunded"
+                        payment_request_doc.save()
+                        
+                        frappe.logger().info(f"Payment Request {client_tradeline_doc.payment_request} status updated to Refunded")
+                    
+                    frappe.db.commit()
+                    frappe.logger().info(f"Proof of refund processed for Client Tradeline {docname}: status set to Refunded")
+                    
+                except Exception as e:
+                    frappe.log_error(f"Error processing proof_of_refund for Client Tradeline {docname}: {str(e)}", "Proof of Refund Automation")
+            
             return {
                 "success": True,
                 "message": "File uploaded successfully",
@@ -122,14 +171,14 @@ def upload_file():
             
             # Check if user is trying to upload public file (only admin allowed)
             is_private = int(form_data.get('is_private', 1))  # Default to private
-            if not is_private and not has_administrator_role(current_user):
+            if not is_private and not is_administrator(current_user):
                 return {
                     "success": False,
                     "message": "Only administrators can upload public files"
                 }
             
             # Validate file_name if provided
-            allowed_file_names = ['dl_front', 'dl_back', 'proof_of_address', 'client_signature']
+            allowed_file_names = ['dl_front', 'dl_back', 'proof_of_address', 'client_signature', 'proof_of_enrollment', 'proof_of_refund']
             provided_file_name = form_data.get('file_name')
             if provided_file_name and provided_file_name not in allowed_file_names:
                 return {
@@ -189,6 +238,49 @@ def upload_file():
             
             if provided_file_name == 'client_signature':
                 frappe.db.sql("update `tabCustomer` set is_questionnaire_filled = %s where email_id = %s", (1, current_user))
+
+            # Handle proof_of_enrollment automation for Client Tradeline
+            if provided_file_name == 'proof_of_enrollment' and doctype == 'Client Tradelines' and docname:
+                try:
+                    # Get current datetime
+                    completion_date = datetime.now()
+                    # Calculate expiry date (61 days after completion)
+                    expiry_date = completion_date + timedelta(days=61)
+                    
+                    # Update the Client Tradeline document
+                    client_tradeline_doc = frappe.get_doc('Client Tradelines', docname)
+                    client_tradeline_doc.completion_date = completion_date
+                    client_tradeline_doc.expiry_date = expiry_date
+                    client_tradeline_doc.save()
+                    
+                    frappe.db.commit()
+                    
+                except Exception as e:
+                    frappe.log_error(f"Error updating Client Tradeline {docname}: {str(e)}", "Proof of Enrollment Automation")
+            
+            # Handle proof_of_refund automation for Client Tradeline
+            if provided_file_name == 'proof_of_refund' and doctype == 'Client Tradelines' and docname:
+                try:
+                    # Get the Client Tradeline document
+                    client_tradeline_doc = frappe.get_doc('Client Tradelines', docname)
+                    
+                    # Set status to Refunded
+                    client_tradeline_doc.status = "Refunded"
+                    client_tradeline_doc.save()
+                    
+                    # Update associated Payment Request status
+                    if client_tradeline_doc.payment_request:
+                        payment_request_doc = frappe.get_doc('Payment Request', client_tradeline_doc.payment_request)
+                        payment_request_doc.status = "Refunded"
+                        payment_request_doc.save()
+                        
+                        frappe.logger().info(f"Payment Request {client_tradeline_doc.payment_request} status updated to Refunded")
+                    
+                    frappe.db.commit()
+                    frappe.logger().info(f"Proof of refund processed for Client Tradeline {docname}: status set to Refunded")
+                    
+                except Exception as e:
+                    frappe.log_error(f"Error processing proof_of_refund for Client Tradeline {docname}: {str(e)}", "Proof of Refund Automation")
 
 
             return {
@@ -266,7 +358,7 @@ def upload_multiple_files():
                 
                 # Check if user is trying to upload public file (only admin allowed)
                 is_private = int(form_data.get('is_private', 1))  # Default to private
-                if not is_private and not has_administrator_role(current_user):
+                if not is_private and not is_administrator(current_user):
                     errors.append({
                         "filename": uploaded_file.filename,
                         "error": "Only administrators can upload public files"
@@ -798,30 +890,6 @@ def get_file_by_url(file_url):
 
 # Helper Functions
 
-def has_administrator_role(user_name):
-    """
-    Check if user has Administrator role profile or is the Administrator user
-    """
-    try:
-        if user_name == "Administrator":
-            return True
-            
-        user_doc = frappe.get_doc("User", user_name)
-        
-        # Check if user has Administrator role profile
-        if hasattr(user_doc, 'role_profile_name') and user_doc.role_profile_name:
-            role_profile = frappe.get_doc("Role Profile", user_doc.role_profile_name)
-            admin_roles = [role.role for role in role_profile.roles if role.role in ["Administrator", "System Manager"]]
-            if admin_roles:
-                return True
-        
-        # Fallback: Check individual roles
-        user_roles = [role.role for role in user_doc.roles]
-        return "Administrator" in user_roles or "System Manager" in user_roles
-        
-    except Exception:
-        return False
-
 def validate_file(uploaded_file):
     """
     Validate uploaded file
@@ -870,7 +938,7 @@ def has_file_access(file_doc):
     Check if current user has access to file
     """
     user = frappe.session.user
-    if has_administrator_role(user):
+    if is_administrator(user):
         return True
     
     if not file_doc.is_private:
@@ -904,7 +972,7 @@ def has_file_access_by_url(file_url):
         file_info = file_doc[0]
 
         user = frappe.session.user
-        if has_administrator_role(user):
+        if is_administrator(user):
             return True
 
         if not file_info.is_private:

@@ -114,7 +114,7 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Draft\nPending\nCompleted\nFailed\nExpired\nCancelled\nVerified",
+   "options": "Draft\nPending\nCompleted\nFailed\nExpired\nCancelled\nVerified\nRefunded",
    "reqd": 1
   },
   {
@@ -287,7 +287,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-08-21 15:50:18.999533",
+ "modified": "2025-09-10 11:41:09.668850",
  "modified_by": "Administrator",
  "module": "Rockettradeline",
  "name": "Payment Request",

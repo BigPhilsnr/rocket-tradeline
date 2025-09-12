@@ -1,0 +1,42 @@
+{
+ "actions": [],
+ "autoname": "autoincrement",
+ "creation": "2025-09-02 02:24:23.012651",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "title"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-09-02 02:25:09.303375",
+ "modified_by": "Administrator",
+ "module": "Rockettradeline",
+ "name": "User Task",
+ "naming_rule": "Autoincrement",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

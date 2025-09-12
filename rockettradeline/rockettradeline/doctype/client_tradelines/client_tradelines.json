@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "field:title",
+ "autoname": "format:{customer}-{###########}",
  "creation": "2025-08-23 12:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -32,11 +32,10 @@
  "fields": [
   {
    "fieldname": "title",
-   "fieldtype": "Data",
+   "fieldtype": "Long Text",
    "in_list_view": 1,
    "label": "Title",
-   "reqd": 1,
-   "unique": 1
+   "reqd": 1
   },
   {
    "fieldname": "client_details_section",
@@ -68,7 +67,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Active\nInactive\nCompleted\nExpired\nCancelled",
+   "options": "Active\nInactive\nCompleted\nExpired\nCancelled\nRefunded\nRefund Requested",
    "reqd": 1
   },
   {
@@ -168,11 +167,11 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-08-23 12:00:00",
+ "modified": "2025-09-10 17:10:48.731426",
  "modified_by": "Administrator",
  "module": "Rockettradeline",
  "name": "Client Tradelines",
- "naming_rule": "By fieldname",
+ "naming_rule": "Expression",
  "owner": "Administrator",
  "permissions": [
   {

@@ -4,6 +4,15 @@ from frappe.utils import validate_email_address, cint, flt
 # auth helper is not needed here; use frappe.session.user set by jwt_required
 import re
 
+def is_administrator(user):
+    """Check if user has Administrator role profile"""
+    if user == "Administrator":
+        return True
+    
+    # Check if user has Administrator role profile
+    role_profile = frappe.db.get_value("User", user, "role_profile_name")
+    return role_profile == "Administrator"
+
 def validate_phone(phone):
     """
     Validate phone number format
@@ -61,7 +70,7 @@ def get_user_permissions():
     """
     user = frappe.session.user
 
-    if user == "Administrator":
+    if is_administrator(user):
         return {
             "is_admin": True,
             "can_manage_users": True,
@@ -72,10 +81,10 @@ def get_user_permissions():
     roles = frappe.get_roles(user)
 
     return {
-        "is_admin": "System Manager" in roles,
-        "can_manage_users": "System Manager" in roles,
-        "can_manage_tradelines": any(role in roles for role in ["System Manager", "Tradeline Manager"]),
-        "can_manage_website": any(role in roles for role in ["System Manager", "Website Manager"])
+        "is_admin": is_administrator(user),
+        "can_manage_users": is_administrator(user),
+        "can_manage_tradelines": any(role in roles for role in ["Administrator", "Tradeline Manager"]),
+        "can_manage_website": any(role in roles for role in ["Administrator", "Website Manager"])
     }
 
 def format_currency(amount, currency="USD"):
@@ -195,3 +204,10 @@ def validate_api_key(api_key):
     except Exception as e:
         frappe.logger().error(f"Failed to validate API key: {str(e)}")
         return None
+
+def get_authenticated_user():
+    """
+    Returns the authenticated user set by jwt_required, or None if not authenticated.
+    """
+    user = frappe.session.user if hasattr(frappe.session, 'user') and frappe.session.user != "Guest" else None
+    return user

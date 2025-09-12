@@ -21,7 +21,9 @@
   "purchased_spots",
   "remaining_spots",
   "item",
-  "balance"
+  "balance",
+  "requires_ssn",
+  "requires_address"
  ],
  "fields": [
   {
@@ -65,7 +67,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Mailing Address",
-   "options": "Mailing Address",
+   "options": "Address",
    "reqd": 1
   },
   {
@@ -77,7 +79,7 @@
    "fieldname": "card_holder",
    "fieldtype": "Link",
    "label": "Card Holder",
-   "options": "Card Holder",
+   "options": "Customer",
    "reqd": 1
   },
   {
@@ -126,11 +128,23 @@
    "fieldtype": "Int",
    "label": "Year",
    "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "requires_ssn",
+   "fieldtype": "Check",
+   "label": "Requires SSN"
+  },
+  {
+   "default": "0",
+   "fieldname": "requires_address",
+   "fieldtype": "Check",
+   "label": "Requires Address"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-06-10 13:33:39.084218",
+ "modified": "2025-08-31 04:50:38.377182",
  "modified_by": "Administrator",
  "module": "Rockettradeline",
  "name": "Tradeline",
@@ -146,6 +160,19 @@
    "read": 1,
    "report": 1,
    "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "if_owner": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Tradeline Seller",
    "share": 1,
    "write": 1
   }

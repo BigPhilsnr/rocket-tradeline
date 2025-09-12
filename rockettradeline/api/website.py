@@ -1,4 +1,4 @@
-from rockettradeline.api.auth import jwt_required, get_current_user
+from rockettradeline.api.auth import jwt_required, get_current_user, is_administrator, require_roles
 import frappe
 from frappe import _
 import json
@@ -70,16 +70,20 @@ def get_content_by_key(key):
         }
 
 @frappe.whitelist(allow_guest=True)
+@jwt_required()
+@require_roles("System Manager", "Administrator")
 def set_site_content(key, value, section, page, content_type="Text"):
     """
     Set site content by key, create if not exists
+    Requires System Manager or Administrator role
     """
     try:
         user = get_current_user()
-        if not user or not frappe.has_permission("Site Content", "write"):
+        if not user or not is_administrator(user):
+            frappe.local.response.http_status_code = 403
             return {
                 "success": False,
-                "message": "Permission denied"
+                "message": "Access denied. Admin privileges required."
             }
         
         # Check if content already exists
@@ -127,76 +131,96 @@ def set_site_content(key, value, section, page, content_type="Text"):
             "message": str(e)
         }
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
+@require_roles("System Manager", "Administrator")
 def bulk_set_site_content(content_list):
     """
     Bulk set site content - accepts list of content items
     Format: [{"key": "key1", "value": "value1", "section": "section1", "page": "page1", "content_type": "Text"}, ...]
+    Requires System Manager or Administrator role
     """
-    user = get_current_user()
-    if not user or not frappe.has_permission("Site Content", "write"):
-        frappe.local.response.http_status_code = 403
+    try:
+        user = get_current_user()
+        if not user or not is_administrator(user):
+            frappe.local.response.http_status_code = 403
+            return {
+                "success": False,
+                "message": "Access denied. Admin privileges required."
+            }
+        
+        if isinstance(content_list, str):
+            content_list = json.loads(content_list)
+        
+        results = []
+        errors = []
+        
+        for item in content_list:
+            try:
+                key = item.get("key")
+                value = item.get("value")
+                section = item.get("section")
+                page = item.get("page")
+                content_type = item.get("content_type", "Text")
+                
+                if not all([key, value, section, page]):
+                    errors.append({
+                        "key": key,
+                        "error": "Missing required fields (key, value, section, page)"
+                    })
+                    continue
+                
+                existing = frappe.get_all("Site Content", 
+                    filters={"key": key},
+                    limit=1
+                )
+                
+                if existing:
+                    content_doc = frappe.get_doc("Site Content", existing[0].name)
+                    content_doc.value = value
+                    content_doc.section = section
+                    content_doc.page = page
+                    content_doc.content_type = content_type
+                    content_doc.save(ignore_permissions=True)
+                    action = "updated"
+                else:
+                    content_doc = frappe.get_doc({
+                        "doctype": "Site Content",
+                        "key": key,
+                        "value": value,
+                        "section": section,
+                        "page": page,
+                        "content_type": content_type,
+                        "is_active": 1
+                    })
+                    content_doc.insert(ignore_permissions=True)
+                    action = "created"
+                
+                results.append({
+                    "key": key,
+                    "action": action,
+                    "success": True
+                })
+                
+            except Exception as e:
+                errors.append({
+                    "key": item.get("key", "unknown"),
+                    "error": str(e)
+                })
+        
+        return {
+            "success": True,
+            "message": f"Processed {len(results)} items successfully, {len(errors)} errors",
+            "results": results,
+            "errors": errors
+        }
+        
+    except Exception as e:
+        frappe.local.response.http_status_code = 500
         return {
             "success": False,
-            "message": "Permission denied"
+            "message": str(e)
         }
-    if isinstance(content_list, str):
-        content_list = json.loads(content_list)
-    results = []
-    errors = []
-    for item in content_list:
-        try:
-            key = item.get("key")
-            value = item.get("value")
-            section = item.get("section")
-            page = item.get("page")
-            content_type = item.get("content_type", "Text")
-            if not all([key, value, section, page]):
-                errors.append({
-                    "key": key,
-                    "error": "Missing required fields (key, value, section, page)"
-                })
-                continue
-            existing = frappe.get_all("Site Content", 
-                filters={"key": key},
-                limit=1
-            )
-            if existing:
-                content_doc = frappe.get_doc("Site Content", existing[0].name)
-                content_doc.value = value
-                content_doc.section = section
-                content_doc.page = page
-                content_doc.content_type = content_type
-                content_doc.save()
-                action = "updated"
-            else:
-                content_doc = frappe.get_doc({
-                    "doctype": "Site Content",
-                    "key": key,
-                    "value": value,
-                    "section": section,
-                    "page": page,
-                    "content_type": content_type,
-                    "is_active": 1
-                })
-                content_doc.insert()
-                action = "created"
-            results.append({
-                "key": key,
-                "action": action,
-                "success": True
-            })
-        except Exception as e:
-            errors.append({
-                "key": item.get("key", "unknown"),
-                "error": str(e)
-            })
-    return {
-        "success": True,
-        "message": f"Processed {len(results)} items successfully, {len(errors)} errors",
-        "results": results,
-        "errors": errors
-    }
 
 @frappe.whitelist()
 def delete_site_content(key):

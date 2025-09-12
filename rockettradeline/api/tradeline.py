@@ -2,6 +2,7 @@ from rockettradeline.api.auth import jwt_required, get_current_user
 import frappe
 from frappe import _
 import json
+from .utils import is_administrator
 from .utils import validate_tradeline_data, get_user_permissions, log_api_call, get_pagination_info, sanitize_search_term
 
 # Tradeline APIs
@@ -121,7 +122,9 @@ def create_tradeline(bank, age_year, credit_limit, price, max_spots,
                 "success": False,
                 "message": "Permission denied"
             }
-        
+
+        status = status if is_administrator(user) else "InActive"
+
         tradeline = frappe.get_doc({
             "doctype": "Tradeline",
             "bank": bank,

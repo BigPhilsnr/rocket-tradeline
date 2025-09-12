@@ -5,6 +5,7 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import now_datetime, add_days, flt
 import json
+import os
 from rockettradeline.api.payment import is_administrator
 
 
@@ -149,6 +150,9 @@ class PaymentRequest(Document):
         
         elif self.status == "Expired":
             self.handle_expiry()
+        
+        elif self.status == "Refunded":
+            self.handle_refund_status()
     
     def send_failure_notification(self):
         """Send notification when payment fails"""
@@ -173,6 +177,43 @@ class PaymentRequest(Document):
         if self.cart_id:
             cart = frappe.get_doc("Tradeline Cart", self.cart_id)
             cart.add_comment("Comment", f"Payment request {self.name} expired")
+    
+    def handle_refund_status(self):
+        """Handle refund status change"""
+        try:
+            # Find Client Tradelines related to this payment request
+            client_tradelines = frappe.get_all("Client Tradelines", 
+                filters={"payment_request": self.name}, 
+                fields=["name"])
+            
+            # Get proof_of_refund attachment if available
+            proof_of_refund_file = None
+            for tradeline in client_tradelines:
+                try:
+                    # Look for proof_of_refund files attached to any Client Tradeline
+                    files = frappe.get_all("File", 
+                        filters={
+                            "attached_to_doctype": "Client Tradelines",
+                            "attached_to_name": tradeline.name,
+                            "file_name": ["like", "%proof_of_refund%"]
+                        }, 
+                        fields=["name"], 
+                        limit=1)
+                    
+                    if files:
+                        proof_of_refund_file = files[0].name
+                        break
+                except Exception as e:
+                    frappe.logger().error(f"Error finding proof_of_refund file for Client Tradeline {tradeline.name}: {str(e)}")
+            
+            # Send refund notification email with attachment
+            self.send_refund_notification(file_attachment=proof_of_refund_file)
+            
+            # Add comment to payment request
+            self.add_comment("Comment", f"Refund processed. Email notification sent to {self.customer_email}")
+            
+        except Exception as e:
+            frappe.log_error(f"Error handling refund status for payment {self.name}: {str(e)}", "Payment Refund Status Error")
     
     def get_payment_data_dict(self):
         """Get payment data as dictionary"""
@@ -230,6 +271,113 @@ class PaymentRequest(Document):
                 )
             except Exception as e:
                 frappe.log_error(f"Failed to send payment completion email: {str(e)}")
+    
+    def send_refund_notification(self, file_attachment=None):
+        """Send notification when payment is refunded"""
+        if not self.customer_email:
+            return
+            
+        try:
+            # Import email functions from auth module
+            from rockettradeline.api.auth import get_email_header, get_email_footer
+            import os
+            
+            # Get consistent email header and footer
+            email_header = get_email_header()
+            email_footer = get_email_footer(self.customer_email)
+            
+            # Get cart and tradeline details
+            cart_details = ""
+            if self.cart_id:
+                try:
+                    cart = frappe.get_doc("Tradeline Cart", self.cart_id)
+                    cart_items = cart.get("items", [])
+                    
+                    if cart_items:
+                        cart_details = "<h4 style='color: #374151; margin: 20px 0 15px 0;'>Refunded Tradeline Details:</h4>"
+                        cart_details += "<ul style='color: #6b7280; line-height: 1.6; margin: 0 0 20px 20px;'>"
+                        
+                        for item in cart_items:
+                            try:
+                                tradeline = frappe.get_doc("Tradeline", item.get("tradeline"))
+                                bank = frappe.get_doc("Tradeline Bank", tradeline.bank) if tradeline.bank else None
+                                bank_name = bank.bank_name if bank else "Unknown Bank"
+                                
+                                cart_details += f"<li><strong>{bank_name}</strong> - ${item.get('price', 0):.2f} x {item.get('quantity', 1)} = ${item.get('total_amount', 0):.2f}</li>"
+                            except Exception:
+                                cart_details += f"<li>Tradeline {item.get('tradeline', 'Unknown')} - ${item.get('total_amount', 0):.2f}</li>"
+                        
+                        cart_details += "</ul>"
+                except Exception as e:
+                    frappe.logger().error(f"Error getting cart details for refund email: {str(e)}")
+            
+            # Create email content
+            subject = f"Refund Processed - Payment Request {self.name}"
+            
+            message = f"""{email_header}
+            <h3 style="color: #374151; margin: 0 0 20px 0;">Refund Processed Successfully</h3>
+            
+            <p style="color: #6b7280; line-height: 1.6; margin: 0 0 20px 0;">
+                We are writing to inform you that your refund has been processed successfully.
+            </p>
+            
+            <div style="background-color: #f9fafb; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
+                <p style="margin: 5px 0;"><strong>Payment Request ID:</strong> {self.name}</p>
+                <p style="margin: 5px 0;"><strong>Original Amount:</strong> ${self.amount:.2f}</p>
+                <p style="margin: 5px 0;"><strong>Refund Amount:</strong> ${self.total_amount:.2f}</p>
+                <p style="margin: 5px 0;"><strong>Payment Method:</strong> {self.payment_method}</p>
+                <p style="margin: 5px 0;"><strong>Cart ID:</strong> {self.cart_id}</p>
+                <p style="margin: 5px 0;"><strong>Refund Date:</strong> {now_datetime().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            </div>
+            
+            {cart_details}
+            
+            <h4 style="color: #374151; margin: 20px 0 15px 0;">What Happens Next:</h4>
+            <p style="color: #6b7280; line-height: 1.6; margin: 0 0 20px 0;">
+                Your refund has been processed and should appear in your {self.payment_method} account within 3-5 business days. 
+                If you have any questions or concerns, please don't hesitate to contact our support team.
+            </p>
+            
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="mailto:support@rockettradeline.com" 
+                   style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; 
+                          border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">
+                    Contact Support
+                </a>
+            </div>
+            {email_footer}"""
+            
+            # Prepare email attachments
+            attachments = []
+            if file_attachment:
+                try:
+                    file_doc = frappe.get_doc("File", file_attachment)
+                    if file_doc.file_url:
+                        # Get the actual file path
+                        file_path = frappe.get_site_path() + file_doc.file_url
+                        if os.path.exists(file_path):
+                            attachments = [
+                                {
+                                    "fname": file_doc.file_name or "proof_of_refund",
+                                    "fcontent": open(file_path, "rb").read()
+                                }
+                            ]
+                except Exception as e:
+                    frappe.logger().error(f"Error preparing refund email attachment: {str(e)}")
+            
+            # Send email
+            frappe.sendmail(
+                recipients=[self.customer_email],
+                subject=subject,
+                message=message,
+                attachments=attachments,
+                now=True
+            )
+            
+            frappe.logger().info(f"Refund notification email sent to {self.customer_email} for payment {self.name}")
+            
+        except Exception as e:
+            frappe.log_error(f"Error sending refund notification for payment {self.name}: {str(e)}", "Payment Refund Email Error")
     
     def cancel_payment(self, reason=None):
         """Cancel payment request"""
@@ -312,9 +460,9 @@ def on_payment_request_update(doc, method):
             from rockettradeline.rockettradeline.doctype.client_tradelines.client_tradelines import create_client_tradelines_from_payment
             
             # Create Client Tradelines records
-            created_records = create_client_tradelines_from_payment(doc)
+            # created_records = create_client_tradelines_from_payment(doc)
             
-            frappe.logger().info(f"Hook: Successfully created {len(created_records)} Client Tradelines records for payment {doc.name}")
+            # frappe.logger().info(f"Hook: Successfully created {len(created_records)} Client Tradelines records for payment {doc.name}")
             
     except Exception as e:
         frappe.log_error(f"Hook error for payment {doc.name}: {str(e)}", "Payment Request Hook Error")
