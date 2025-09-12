@@ -7,7 +7,7 @@ from .utils import is_administrator
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_client_tradelines(status=None, limit=20, start=0, customer=None):
+def get_client_tradelines(status=None, limit=20, start=0, customer=None, tradeline=None):
     """Get client tradelines based on user permissions"""
     try:
         current_user = get_authenticated_user()
@@ -50,7 +50,12 @@ def get_client_tradelines(status=None, limit=20, start=0, customer=None):
         if status:
             conditions.append("status = %s")
             values.append(status)
-        
+
+        # Add tradeline_id filter if provided
+        if tradeline:
+            conditions.append("tradeline = %s")
+            values.append(tradeline)
+
         # Build WHERE clause
         where_clause = ""
         if conditions:

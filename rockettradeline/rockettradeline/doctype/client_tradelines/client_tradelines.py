@@ -29,6 +29,20 @@ class ClientTradelines(Document):
         if self.quantity and self.unit_price:
             self.total_amount = flt(self.quantity) * flt(self.unit_price)
     
+    def after_insert(self):
+        """Recalculate tradeline remaining spots after inserting new client tradeline"""
+        self.recalculate_tradeline_remaining_spots()
+    
+    def on_trash(self):
+        """Recalculate tradeline remaining spots before deleting client tradeline"""
+        # Store tradeline name before deletion
+        self._tradeline_for_recalc = self.tradeline
+    
+    def after_delete(self):
+        """Recalculate tradeline remaining spots after deleting client tradeline"""
+        if hasattr(self, '_tradeline_for_recalc') and self._tradeline_for_recalc:
+            self.recalculate_tradeline_remaining_spots_by_tradeline(self._tradeline_for_recalc)
+    
     def validate(self):
         """Validate client tradeline data"""
         if flt(self.quantity) <= 0:
@@ -38,9 +52,13 @@ class ClientTradelines(Document):
             frappe.throw("Unit price cannot be negative")
     
     def on_update(self):
-        """Handle status changes"""
+        """Handle status changes and recalculate tradeline remaining spots"""
         if self.has_value_changed("status"):
             self.handle_status_change()
+        
+        # Recalculate remaining spots for the attached tradeline when status changes
+        if self.has_value_changed("status") or self.has_value_changed("quantity"):
+            self.recalculate_tradeline_remaining_spots()
     
     def handle_status_change(self):
         """Handle client tradeline status changes"""
@@ -49,6 +67,121 @@ class ClientTradelines(Document):
         
         elif self.status == "Cancelled":
             self.add_comment("Comment", f"Client tradeline cancelled on {frappe.utils.today()}")
+    
+    def recalculate_tradeline_remaining_spots(self):
+        """
+        Recalculate remaining spots for the attached tradeline
+        by summing all active client tradelines and subtracting from max spots
+        """
+        if not self.tradeline:
+            return
+        
+        try:
+            # Get the tradeline document
+            tradeline_doc = frappe.get_doc("Tradeline", self.tradeline)
+            
+            # Get sum of quantities from all active client tradelines for this tradeline
+            active_client_tradelines = frappe.get_all("Client Tradelines",
+                filters={
+                    "tradeline": self.tradeline,
+                    "status": "Active"
+                },
+                fields=["quantity"]
+            )
+            
+            # Calculate total purchased spots
+            total_purchased_spots = sum(int(ct.quantity or 0) for ct in active_client_tradelines)
+            
+            # Calculate remaining spots
+            max_spots = int(tradeline_doc.max_spots or 0)
+            new_remaining_spots = max_spots - total_purchased_spots
+            
+            # Ensure remaining spots doesn't go below 0
+            new_remaining_spots = max(0, new_remaining_spots)
+            
+            if new_remaining_spots < 1:
+                frappe.throw("Error: Remaining spots cannot be negative")
+            
+            # Update the tradeline document only if values have changed
+            if (tradeline_doc.purchased_spots != total_purchased_spots or 
+                tradeline_doc.remaining_spots != new_remaining_spots):
+                
+                # Update fields without triggering hooks to avoid recursion
+                frappe.db.set_value("Tradeline", self.tradeline, "purchased_spots", total_purchased_spots)
+                frappe.db.set_value("Tradeline", self.tradeline, "remaining_spots", new_remaining_spots)
+                
+                # Add a comment to the tradeline about the update
+                frappe.get_doc("Tradeline", self.tradeline).add_comment(
+                    "Info", 
+                    f"Spots recalculated: Purchased={total_purchased_spots}, Remaining={new_remaining_spots} "
+                    f"(triggered by Client Tradeline {self.name} status change to '{self.status}')"
+                )
+                
+                frappe.logger().info(
+                    f"Updated Tradeline {self.tradeline}: "
+                    f"purchased_spots={total_purchased_spots}, remaining_spots={new_remaining_spots}"
+                )
+                
+        except Exception as e:
+            frappe.throw(
+                f"Error recalculating remaining spots for tradeline {self.tradeline} "
+                f"from client tradeline {self.name}: {str(e)}", 
+                "Tradeline Spots Recalculation Error"
+            )
+    
+    def recalculate_tradeline_remaining_spots_by_tradeline(self, tradeline_name):
+        """
+        Recalculate remaining spots for a specific tradeline
+        Used when deleting client tradelines
+        """
+        if not tradeline_name:
+            return
+        
+        try:
+            # Get the tradeline document
+            tradeline_doc = frappe.get_doc("Tradeline", tradeline_name)
+            
+            # Get sum of quantities from all active client tradelines for this tradeline
+            active_client_tradelines = frappe.get_all("Client Tradelines",
+                filters={
+                    "tradeline": tradeline_name,
+                    "status": "Active"
+                },
+                fields=["quantity"]
+            )
+            
+            # Calculate total purchased spots
+            total_purchased_spots = sum(int(ct.quantity or 0) for ct in active_client_tradelines)
+            
+            # Calculate remaining spots
+            max_spots = int(tradeline_doc.max_spots or 0)
+            new_remaining_spots = max_spots - total_purchased_spots
+            
+            # Ensure remaining spots doesn't go below 0
+            new_remaining_spots = max(0, new_remaining_spots)
+            
+            # Update the tradeline document
+            frappe.db.set_value("Tradeline", tradeline_name, "purchased_spots", total_purchased_spots)
+            frappe.db.set_value("Tradeline", tradeline_name, "remaining_spots", new_remaining_spots)
+            
+            # Add a comment to the tradeline about the update
+            frappe.get_doc("Tradeline", tradeline_name).add_comment(
+                "Info", 
+                f"Spots recalculated after client tradeline deletion: "
+                f"Purchased={total_purchased_spots}, Remaining={new_remaining_spots}"
+            )
+            
+            frappe.logger().info(
+                f"Updated Tradeline {tradeline_name} after deletion: "
+                f"purchased_spots={total_purchased_spots}, remaining_spots={new_remaining_spots}"
+            )
+            
+        except Exception as e:
+            frappe.log_error(
+                f"Error recalculating remaining spots for tradeline {tradeline_name} "
+                f"after client tradeline deletion: {str(e)}", 
+                "Tradeline Spots Recalculation Error"
+            )
     
     def get_cart_details(self):
         """Get associated cart details"""

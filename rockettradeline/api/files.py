@@ -11,7 +11,41 @@ import hashlib
 from .auth import jwt_required, get_authenticated_user
 from .utils import is_administrator
 from datetime import datetime, timedelta
-from datetime import datetime, timedelta
+
+
+def get_allowed_file_names():
+    """
+    Get allowed file names from the Allowed File Name doctype
+    Falls back to hardcoded list if doctype is not available
+    """
+    try:
+        # Try to get from database
+        file_names = frappe.get_all("Allowed File Name",
+            filters={"is_active": 1},
+            fields=["file_name"],
+            order_by="file_name asc"
+        )
+        
+        if file_names:
+            return [item.file_name for item in file_names]
+        else:
+            # Fallback to hardcoded list if no records found
+            return get_fallback_file_names()
+            
+    except Exception:
+        # Fallback to hardcoded list if doctype doesn't exist or error occurs
+        return get_fallback_file_names()
+
+def get_fallback_file_names():
+    """
+    Fallback list of allowed file names
+    """
+    return [
+        'dl_front', 'dl_back', 'proof_of_address', 'client_signature', 
+        'proof_of_enrollment', 'proof_of_refund', 'credit_report', 
+        'authorized_user_guide', 'privacy_policy', 'terms_conditions', 
+        'refund_policy', 'authorized_user_agreement'
+    ]
                  
 
 
@@ -59,7 +93,7 @@ def upload_file():
                 }
             
             # Validate file_name if provided
-            allowed_file_names = ['dl_front', 'dl_back', 'proof_of_address', 'client_signature','proof_of_enrollment', "proof_of_refund", "credit_report", "authorized_user_guide", "privacy_policy", "terms_conditions", "refund_policy"]
+            allowed_file_names = get_allowed_file_names()
             provided_file_name = form_data.get('file_name')
             if provided_file_name and provided_file_name not in allowed_file_names:
                 return {
@@ -178,7 +212,7 @@ def upload_file():
                 }
             
             # Validate file_name if provided
-            allowed_file_names = ['dl_front', 'dl_back', 'proof_of_address', 'client_signature', 'proof_of_enrollment', 'proof_of_refund']
+            allowed_file_names = get_allowed_file_names()
             provided_file_name = form_data.get('file_name')
             if provided_file_name and provided_file_name not in allowed_file_names:
                 return {
@@ -638,7 +672,9 @@ def get_files_list(doctype=None, docname=None, folder=None, is_private=None,
             filters["folder"] = folder
         if is_private is not None:
             filters["is_private"] = int(is_private)
-        
+        if not is_administrator(current_user):
+            filters["owner"] = current_user
+
         # Add search functionality
         if search:
             filters["file_name"] = ["like", f"%{search}%"]
@@ -1123,4 +1159,209 @@ def resize_image(file_name, width=None, height=None, maintain_aspect_ratio=True)
         return {
             "success": False,
             "message": str(e)
+        }
+
+# Allowed File Names Management APIs
+
+@frappe.whitelist()
+@jwt_required()
+def get_allowed_file_names_list():
+    """
+    Get list of all allowed file names with details (Admin only)
+    """
+    try:
+        current_user = get_authenticated_user()
+        if not is_administrator(current_user):
+            return {
+                "success": False,
+                "message": "Access denied. Admin privileges required."
+            }
+        
+        file_names = frappe.get_all("Allowed File Name",
+            fields=["name", "file_name", "description", "category", "is_active", "created_date", "modified_date"],
+            order_by="category asc, file_name asc"
+        )
+        
+        return {
+            "success": True,
+            "file_names": file_names,
+            "total_count": len(file_names)
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Get allowed file names error: {str(e)}")
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+@frappe.whitelist()
+@jwt_required()
+def add_allowed_file_name(file_name, description=None, category="Other"):
+    """
+    Add a new allowed file name (Admin only)
+    """
+    try:
+        current_user = get_authenticated_user()
+        if not is_administrator(current_user):
+            return {
+                "success": False,
+                "message": "Access denied. Admin privileges required."
+            }
+            
+        if not file_name:
+            return {
+                "success": False,
+                "message": "File name is required"
+            }
+            
+        # Clean the file name
+        clean_name = file_name.strip().lower().replace(" ", "_")
+        
+        # Check if already exists
+        if frappe.db.exists("Allowed File Name", clean_name):
+            return {
+                "success": False,
+                "message": f"File name '{clean_name}' already exists"
+            }
+            
+        # Create new document
+        doc = frappe.get_doc({
+            "doctype": "Allowed File Name",
+            "file_name": clean_name,
+            "description": description,
+            "category": category,
+            "is_active": 1
+        })
+        
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        
+        return {
+            "success": True,
+            "message": f"File name '{clean_name}' added successfully",
+            "file_name": clean_name
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Add allowed file name error: {str(e)}")
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+@frappe.whitelist()
+@jwt_required()
+def update_allowed_file_name(file_name, description=None, category=None, is_active=None):
+    """
+    Update an allowed file name (Admin only)
+    """
+    try:
+        current_user = get_authenticated_user()
+        if not is_administrator(current_user):
+            return {
+                "success": False,
+                "message": "Access denied. Admin privileges required."
+            }
+            
+        if not file_name:
+            return {
+                "success": False,
+                "message": "File name is required"
+            }
+            
+        # Get the document
+        if not frappe.db.exists("Allowed File Name", file_name):
+            return {
+                "success": False,
+                "message": f"File name '{file_name}' not found"
+            }
+            
+        doc = frappe.get_doc("Allowed File Name", file_name)
+        
+        # Update fields if provided
+        if description is not None:
+            doc.description = description
+        if category is not None:
+            doc.category = category
+        if is_active is not None:
+            doc.is_active = int(is_active)
+            
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        
+        return {
+            "success": True,
+            "message": f"File name '{file_name}' updated successfully"
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Update allowed file name error: {str(e)}")
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+@frappe.whitelist()
+@jwt_required()
+def delete_allowed_file_name(file_name):
+    """
+    Delete an allowed file name (Admin only)
+    """
+    try:
+        current_user = get_authenticated_user()
+        if not is_administrator(current_user):
+            return {
+                "success": False,
+                "message": "Access denied. Admin privileges required."
+            }
+            
+        if not file_name:
+            return {
+                "success": False,
+                "message": "File name is required"
+            }
+            
+        # Check if exists
+        if not frappe.db.exists("Allowed File Name", file_name):
+            return {
+                "success": False,
+                "message": f"File name '{file_name}' not found"
+            }
+            
+        # Delete the document
+        frappe.delete_doc("Allowed File Name", file_name, ignore_permissions=True)
+        frappe.db.commit()
+        
+        return {
+            "success": True,
+            "message": f"File name '{file_name}' deleted successfully"
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Delete allowed file name error: {str(e)}")
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+@frappe.whitelist(allow_guest=True)
+def get_allowed_file_names_public():
+    """
+    Get list of active allowed file names (public endpoint for frontend)
+    """
+    try:
+        file_names = get_allowed_file_names()
+        
+        return {
+            "success": True,
+            "file_names": file_names
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Get public allowed file names error: {str(e)}")
+        return {
+            "success": False,
+            "message": str(e),
+            "file_names": get_fallback_file_names()
         }
