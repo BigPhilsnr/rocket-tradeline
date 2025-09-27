@@ -4,6 +4,9 @@
 import frappe
 from frappe.model.document import Document
 import json
+import re
+import operator
+import ast
 from decimal import Decimal
 
 class PaymentConfiguration(Document):
@@ -75,15 +78,118 @@ class PaymentConfiguration(Document):
         percentage_fee = float(self.percentage_fee or 0)
         if percentage_fee < 0 or percentage_fee > 100:
             frappe.throw("Percentage fee must be between 0 and 100")
+        
+        # Validate fee formula if calculation is enabled
+        if self.enable_calculation and self.fee_formula:
+            self.validate_fee_formula()
+    
+    def validate_fee_formula(self):
+        """Validate fee formula syntax and safety"""
+        if not self.fee_formula:
+            return
+        
+        try:
+            # Test formula with a sample amount
+            test_amount = 100
+            result = self.safe_evaluate_formula(self.fee_formula, test_amount)
+            if result < 0:
+                frappe.throw("Fee formula cannot result in negative values")
+        except Exception as e:
+            frappe.throw(f"Invalid fee formula: {str(e)}")
+    
+    def safe_evaluate_formula(self, formula, amount):
+        """Safely evaluate fee formula with given amount"""
+        if not formula:
+            return 0
+        
+        # Replace 'amount' with actual value in formula
+        safe_formula = formula.replace('amount', str(float(amount)))
+        
+        # Define allowed operators and functions
+        allowed_operators = {
+            ast.Add: operator.add,
+            ast.Sub: operator.sub,
+            ast.Mult: operator.mul,
+            ast.Div: operator.truediv,
+            ast.Mod: operator.mod,
+            ast.Pow: operator.pow,
+            ast.USub: operator.neg,
+            ast.UAdd: operator.pos,
+        }
+        
+        # Parse the formula
+        try:
+            tree = ast.parse(safe_formula, mode='eval')
+        except SyntaxError:
+            raise ValueError("Invalid formula syntax")
+        
+        def _eval(node):
+            if isinstance(node, ast.Expression):
+                return _eval(node.body)
+            elif isinstance(node, ast.BinOp):
+                left = _eval(node.left)
+                right = _eval(node.right)
+                op = allowed_operators.get(type(node.op))
+                if op is None:
+                    raise ValueError(f"Operator {type(node.op).__name__} not allowed")
+                return op(left, right)
+            elif isinstance(node, ast.UnaryOp):
+                operand = _eval(node.operand)
+                op = allowed_operators.get(type(node.op))
+                if op is None:
+                    raise ValueError(f"Operator {type(node.op).__name__} not allowed")
+                return op(operand)
+            elif isinstance(node, ast.Constant):  # Python 3.8+
+                return node.value
+            elif isinstance(node, ast.Num):  # Python < 3.8
+                return node.n
+            elif isinstance(node, ast.Call):
+                # Allow only specific functions
+                if isinstance(node.func, ast.Name):
+                    func_name = node.func.id
+                    if func_name in ['round', 'abs', 'min', 'max']:
+                        args = [_eval(arg) for arg in node.args]
+                        if func_name == 'round':
+                            return round(*args)
+                        elif func_name == 'abs':
+                            return abs(*args)
+                        elif func_name == 'min':
+                            return min(*args)
+                        elif func_name == 'max':
+                            return max(*args)
+                raise ValueError(f"Function {func_name} not allowed")
+            else:
+                raise ValueError(f"Expression type {type(node).__name__} not allowed")
+        
+        result = _eval(tree)
+        return float(result)
     
     def calculate_fees(self, amount):
         """Calculate total fees for a given amount"""
         amount = Decimal(str(amount or 0))
+        
+        # Use formula calculation if enabled
+        if self.enable_calculation and self.fee_formula:
+            try:
+                calculated_fee = self.safe_evaluate_formula(self.fee_formula, float(amount))
+                return {
+                    "calculation_type": "formula",
+                    "formula": self.fee_formula,
+                    "calculated_fee": calculated_fee,
+                    "total_fee": calculated_fee
+                }
+            except Exception as e:
+                frappe.log_error(f"Fee formula calculation error: {str(e)}")
+                # Fallback to traditional calculation
+                pass
+        
+        # Traditional calculation (fixed + percentage)
         fixed_fee = Decimal(str(self.fixed_fee or 0))
         percentage_fee = Decimal(str(self.percentage_fee or 0)) / 100
         
         total_fee = fixed_fee + (amount * percentage_fee)
         return {
+            "calculation_type": "traditional",
             "fixed_fee": float(fixed_fee),
             "percentage_fee_amount": float(amount * percentage_fee),
             "total_fee": float(total_fee)

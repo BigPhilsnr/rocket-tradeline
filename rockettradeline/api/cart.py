@@ -4,22 +4,16 @@ from rockettradeline.api.auth import jwt_required, get_current_user, get_authent
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, now, add_days, now_datetime, get_datetime
+from frappe.utils import cint, flt, now, add_days, now_datetime, get_datetime_str
 import json
 from rockettradeline.api.auth import jwt_required, get_current_user, get_authenticated_user
 
-def is_administrator(user):
-    """Check if user has Administrator role or profile"""
-    if user == "Administrator":
-        return True
-    
-    # Check if user has Administrator role profile
-    user_roles = frappe.get_roles(user)
-    return "System Manager" in user_roles
+from .utils import is_administrator
 
 def verify_cart_access(cart, current_user):
     """Verify if user has access to cart (owner or administrator)"""
-    return cart.user_id == current_user or is_administrator(current_user)
+    account_manager = frappe.db.get_value('Customer', dict(email_id=current_user), 'account_manager')
+    return cart.user_id == current_user or is_administrator(current_user) or (account_manager and account_manager == current_user)
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
@@ -72,7 +66,7 @@ def create_cart():
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_cart(cart_id=None):
+def get_cart(cart_id=None, status='Active'):
     """Get user's cart (active cart if no cart_id provided)"""
     try:
         current_user = get_authenticated_user()
@@ -93,6 +87,25 @@ def get_cart(cart_id=None):
                 'name'
             )
             
+            cart_checkout = frappe.db.get_value(
+                'Tradeline Cart',
+                {'user_id': current_user, 'status': 'Checked Out'},
+                'name'
+            )
+            
+            if cart_checkout:
+                cart_checkout_one = frappe.db.get_value(
+                'Payment Request',
+                {'cart_id': cart_checkout, 'status': 'Pending'},
+                'cart_id'
+                )
+
+                if cart_checkout_one:
+                    cart_name = cart_checkout_one
+                 
+            
+
+
             if not cart_name:
                 return {'success': False, 'error': 'No active cart found', 'user': current_user}
             
@@ -235,7 +248,7 @@ def remove_from_cart(tradeline_id, cart_id=None):
         if cart_id:
             cart = frappe.get_doc('Tradeline Cart', cart_id)
             if not verify_cart_access(cart, current_user):
-                return {'success': False, 'error': 'Access denied'}
+                return {'success': False, 'error': f'Access denied for cart {cart_id} for user {current_user}'}
         else:
             cart_name = frappe.db.get_value(
                 'Tradeline Cart',
@@ -470,18 +483,40 @@ def apply_discount(discount_type, discount_value, cart_id=None):
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def checkout_cart(cart_id=None):
+def checkout_cart(cart_id=None, address_id=None):
     """Checkout cart and create order"""
     try:
         current_user = get_authenticated_user()
         if not current_user:
             return {'success': False, 'error': 'Authentication required'}
         
+        #update return with correct status code 417 instead of success false
+        
+        # validate user status
+        user_status = frappe.db.get_value('User', current_user, 'enabled')
+        if not user_status:
+            frappe.response.http_status_code = 417
+            return {'success': False, 'error': 'User account is disabled'}
+        
+        # validate customer has signed agreement and filled questionnaire
+        customer = frappe.db.get_value('Customer', {'email_id': current_user}, ['name', 'has_signed_agreement', 'is_questionnaire_filled'], as_dict=True)
+        if not customer:
+            frappe.response.http_status_code = 417
+            return {'success': False, 'error': 'Customer not found'}
+
+        if not customer.get('has_signed_agreement'):
+            frappe.response.http_status_code = 417
+            return {'success': False, 'error': 'Customer has not signed the agreement'}
+
+        if not customer.get('is_questionnaire_filled'):
+            frappe.response.http_status_code = 417
+            return {'success': False, 'error': 'Customer has not filled the questionnaire'}
+
         # Get cart
         if cart_id:
             cart = frappe.get_doc('Tradeline Cart', cart_id)
             if not verify_cart_access(cart, current_user):
-                return {'success': False, 'error': 'Access denied'}
+               return {'success': False, 'error': f'Access denied for cart {cart_id} for user {current_user}'}
         else:
             cart_name = frappe.db.get_value(
                 'Tradeline Cart',
@@ -505,6 +540,7 @@ def checkout_cart(cart_id=None):
         # Process checkout
         cart.status = "Checked Out"
         cart.payment_status = "Pending"
+        cart.payment_adress = address_id
         cart.save()
         
         # Create Sales Order (if needed)
@@ -528,38 +564,180 @@ def checkout_cart(cart_id=None):
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_cart_history(limit=20, start=0):
-    """Get user's cart history"""
+def get_carts(limit=20, start=0, status=None, user_id=None, search=None, order_by='creation desc'):
+    """Get list of carts for current user or all carts if admin"""
     try:
         current_user = get_authenticated_user()
         if not current_user:
             return {'success': False, 'error': 'Authentication required'}
         
-        # Convert limit and start to integers to avoid type issues
+        # Convert limit and start to integers
         limit = int(limit) if limit else 20
         start = int(start) if start else 0
         
-        carts = frappe.get_list(
-            'Tradeline Cart',
-            filters={'user_id': current_user},
-            fields=['name', 'status', 'total_amount', 'payment_mode', 'payment_status', 'creation', 'modified'],
-            order_by='creation desc',
-            limit=limit,
-            start=start
-        )
+        # Check if user is administrator
+        is_admin = is_administrator(current_user)
         
-        total_count = frappe.db.count('Tradeline Cart', {'user_id': current_user})
+        # Build filters
+        filters = {}
+        
+        if is_admin:
+            # Admin can see all carts or filter by user
+            if user_id:
+                filters['user_id'] = user_id
+        else:
+            # Regular users can only see their own carts
+            filters['user_id'] = current_user
+        
+        # Add status filter if provided
+        if status:
+            if isinstance(status, str) and ',' in status:
+                # Handle multiple statuses (comma-separated)
+                status_list = [s.strip() for s in status.split(',')]
+                filters['status'] = ['in', status_list]
+            else:
+                filters['status'] = status
+        
+        # Add search functionality
+        search_filters = []
+        if search:
+            search_filters.append(['name', 'like', f'%{search}%'])
+            search_filters.append(['user_id', 'like', f'%{search}%'])
+            search_filters.append(['customer', 'like', f'%{search}%'])
+        
+        # Get cart list with detailed information
+        fields = [
+            'name', 'user_id', 'customer', 'status', 'payment_status',
+            'subtotal', 'discount_amount', 'tax_amount', 'total_amount',
+            'payment_mode', 'cart_expiry', 'creation', 'modified',
+            'owner', 'modified_by'
+        ]
+        
+        # Build query conditions
+        conditions = []
+        values = []
+        
+        # Add filters
+        for key, value in filters.items():
+            if isinstance(value, list) and value[0] == 'in':
+                placeholders = ', '.join(['%s'] * len(value[1]))
+                conditions.append(f"`{key}` IN ({placeholders})")
+                values.extend(value[1])
+            else:
+                conditions.append(f"`{key}` = %s")
+                values.append(value)
+        
+        # Add search conditions
+        if search_filters:
+            search_conditions = []
+            for field, operator, search_value in search_filters:
+                search_conditions.append(f"`{field}` {operator} %s")
+                values.append(search_value)
+            
+            if search_conditions:
+                conditions.append(f"({' OR '.join(search_conditions)})")
+        
+        # Build final query
+        where_clause = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
+        
+        # Get total count for pagination
+        count_query = f"""
+            SELECT COUNT(*) as total
+            FROM `tabTradeline Cart`
+            {where_clause}
+        """
+        
+        total_count = frappe.db.sql(count_query, values, as_dict=True)[0]['total']
+        
+        # Get cart data
+        data_query = f"""
+            SELECT {', '.join([f'`{field}`' for field in fields])}
+            FROM `tabTradeline Cart`
+            {where_clause}
+            ORDER BY `{order_by.replace(' desc', '').replace(' asc', '')}` {order_by.split()[-1] if ' ' in order_by else 'DESC'}
+            LIMIT %s OFFSET %s
+        """
+        
+        values.extend([limit, start])
+        carts = frappe.db.sql(data_query, values, as_dict=True)
+        
+        # Enhance cart data with additional information
+        for cart in carts:
+            # Get item count for each cart
+            item_count = frappe.db.count('Tradeline Cart Item', {'parent': cart['name']})
+            cart['item_count'] = item_count
+            
+            # Get customer name if available
+            if cart.get('customer'):
+                customer_name = frappe.db.get_value('Customer', cart['customer'], 'customer_name')
+                cart['customer_name'] = customer_name
+            
+            # Check if cart is expired
+            if cart.get('cart_expiry'):
+                cart['is_expired'] = frappe.utils.getdate(cart['cart_expiry']) < frappe.utils.getdate()
+            else:
+                cart['is_expired'] = False
+            
+            # Get latest payment request if any
+            latest_payment = frappe.db.get_value(
+                'Payment Request',
+                {'cart_id': cart['name']},
+                ['name', 'status', 'payment_method', 'transaction_id'],
+                order_by='creation desc',
+                as_dict=True
+            )
+            cart['latest_payment'] = latest_payment
+        
+        # Build pagination object
+        pagination = {
+            'total': total_count,
+            'limit': limit,
+            'start': start,
+            'current_page': (start // limit) + 1,
+            'total_pages': -(-total_count // limit),  # Ceiling division
+            'has_next': (start + limit) < total_count,
+            'has_previous': start > 0
+        }
+        
+        # Get summary statistics for admin
+        summary = {}
+        if is_admin:
+            summary = {
+                'total_carts': total_count,
+                'active_carts': frappe.db.count('Tradeline Cart', {'status': 'Active'}),
+                'checked_out_carts': frappe.db.count('Tradeline Cart', {'status': 'Checked Out'}),
+                'expired_carts': frappe.db.count('Tradeline Cart', {'status': 'Expired'}),
+                'total_revenue': frappe.db.sql("""
+                    SELECT COALESCE(SUM(total_amount), 0) as total
+                    FROM `tabTradeline Cart`
+                    WHERE status IN ('Checked Out', 'Completed')
+                """)[0][0] or 0
+            }
         
         return {
             'success': True,
-            'carts': carts,
-            'pagination': {
-                'total': total_count,
-                'limit': limit,
-                'start': start,
-                'has_next': (start + limit) < total_count
+            'data': carts,
+            'pagination': pagination,
+            'summary': summary,
+            'is_admin': is_admin,
+            'filters_applied': {
+                'status': status,
+                'user_id': user_id if is_admin else current_user,
+                'search': search
             }
         }
+        
+    except Exception as e:
+        frappe.log_error(f"Get carts error: {str(e)}", "Cart API Error")
+        return {'success': False, 'error': str(e)}
+
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
+def get_cart_history(limit=20, start=0):
+    """Get user's cart history (legacy function - now calls get_carts)"""
+    try:
+        # This is now a wrapper around the more comprehensive get_carts function
+        return get_carts(limit=limit, start=start, order_by='creation desc')
         
     except Exception as e:
         frappe.log_error(f"Get cart history error: {str(e)}", "Cart API Error")

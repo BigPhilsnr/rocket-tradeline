@@ -4,6 +4,8 @@
 import frappe
 from frappe.utils import now_datetime, getdate, add_days
 from rockettradeline.api.auth import get_email_header, get_email_footer
+from frappe.email.queue import flush
+from rockettradeline.rockettradeline.doctype.email_template_custom.email_template_custom import send_email_template
 
 
 def check_and_expire_client_tradelines():
@@ -12,7 +14,8 @@ def check_and_expire_client_tradelines():
     Runs every hour to check for expired tradelines
     """
     try:
-        frappe.logger().info("Starting expired client tradelines check...")
+        # Use safer logging that doesn't require file permissions
+        print("Starting expired client tradelines check...")
         
         # Get current date
         current_date = getdate()
@@ -56,7 +59,7 @@ def check_and_expire_client_tradelines():
         expired_tradelines = frappe.db.sql(expired_query, (current_date,), as_dict=True)
         
         if not expired_tradelines:
-            frappe.logger().info("No expired client tradelines found.")
+            print("No expired client tradelines found.")
             return {"success": True, "message": "No expired tradelines found", "processed": 0}
         
         processed_count = 0
@@ -71,16 +74,16 @@ def check_and_expire_client_tradelines():
                 if tradeline.cardholder_email:
                     send_cardholder_removal_notification(tradeline)
                 else:
-                    frappe.logger().warning(f"No cardholder email found for tradeline {tradeline.name}")
+                    print(f"Warning: No cardholder email found for tradeline {tradeline.name}")
                 
                 # Send expiration notification to client
                 if tradeline.client_email:
                     send_client_expiration_notification(tradeline)
                 else:
-                    frappe.logger().warning(f"No client email found for tradeline {tradeline.name}")
+                    print(f"Warning: No client email found for tradeline {tradeline.name}")
                 
                 processed_count += 1
-                frappe.logger().info(f"Processed expired tradeline: {tradeline.name}")
+                print(f"Processed expired tradeline: {tradeline.name}")
                 
             except Exception as e:
                 error_msg = f"Failed to process tradeline {tradeline.name}: {str(e)}"
@@ -100,13 +103,13 @@ def check_and_expire_client_tradelines():
         if email_failures:
             result["email_failures"] = email_failures
         
-        frappe.logger().info(f"Expired tradelines check completed. Processed: {processed_count}")
+        print(f"Expired tradelines check completed. Processed: {processed_count}")
         return result
         
     except Exception as e:
         error_msg = f"Expired tradelines cron job failed: {str(e)}"
         frappe.log_error(error_msg, "Expired Tradelines Cron Job Error")
-        frappe.logger().error(error_msg)
+        print(error_msg)
         return {"success": False, "error": str(e)}
 
 
@@ -118,78 +121,34 @@ def send_cardholder_removal_notification(tradeline):
         if not tradeline.cardholder_email:
             return
         
-        # Get consistent email header and footer
-        email_header = get_email_header()
-        email_footer = get_email_footer(tradeline.cardholder_email)
+        # Calculate days overdue
+        days_overdue = (getdate() - getdate(tradeline.expiry_date)).days
         
-        # Prepare email content
-        subject = f"Client Removal Required - {tradeline.bank_name or 'Tradeline'} Expired"
+        # Prepare template parameters
+        template_params = {
+            "cardholder_name": tradeline.cardholder_name or 'Card Holder',
+            "customer_name": tradeline.customer_name,
+            "client_email": tradeline.client_email,
+            "tradeline_id": tradeline.name,
+            "expiry_date": tradeline.expiry_date,
+            "days_overdue": days_overdue,
+            "bank_name": tradeline.bank_name or 'N/A',
+            "credit_limit": f"{tradeline.credit_limit:,.0f}" if tradeline.credit_limit else "N/A",
+            "age_year": tradeline.age_year or 0,
+            "age_month": tradeline.age_month or 0,
+            "closing_date": tradeline.closing_date or 'N/A',
+            "quantity": tradeline.quantity or 1,
+            "total_amount": f"{tradeline.total_amount:,.2f}" if tradeline.total_amount else "0.00"
+        }
         
-        message = f"""{email_header}
-        <h3 style="color: #DC2626; margin: 0 0 20px 0;">Client Tradeline Expired - Removal Required</h3>
-        <p style="color: #374151; font-size: 16px; margin: 0 0 10px 0;">Dear {tradeline.cardholder_name or 'Card Holder'},</p>
-        
-        <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 0 0 25px 0;">
-            A client's tradeline subscription has expired and requires immediate attention. Please remove the following client from your tradeline as soon as possible.
-        </p>
-        
-        <h4 style="color: #374151; margin: 20px 0 15px 0;">Client Removal Details:</h4>
-        <div style="background-color: #fef2f2; border-left: 4px solid #DC2626; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
-            <p style="margin: 5px 0;"><strong>Client Name:</strong> {tradeline.customer_name}</p>
-            <p style="margin: 5px 0;"><strong>Client Email:</strong> {tradeline.client_email}</p>
-            <p style="margin: 5px 0;"><strong>Tradeline ID:</strong> {tradeline.name}</p>
-            <p style="margin: 5px 0;"><strong>Expired Date:</strong> {tradeline.expiry_date}</p>
-            <p style="margin: 5px 0;"><strong>Duration:</strong> {(getdate() - getdate(tradeline.expiry_date)).days} days overdue</p>
-        </div>
-        
-        <h4 style="color: #374151; margin: 20px 0 15px 0;">Tradeline Information:</h4>
-        <div style="background-color: #f9fafb; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
-            <p style="margin: 5px 0;"><strong>Bank:</strong> {tradeline.bank_name or 'N/A'}</p>
-            <p style="margin: 5px 0;"><strong>Credit Limit:</strong> ${tradeline.credit_limit:,}</p>
-            <p style="margin: 5px 0;"><strong>Account Age:</strong> {tradeline.age_year} years {tradeline.age_month or 0} months</p>
-            <p style="margin: 5px 0;"><strong>Closing Date:</strong> {tradeline.closing_date}</p>
-            <p style="margin: 5px 0;"><strong>Spots Purchased:</strong> {tradeline.quantity}</p>
-            <p style="margin: 5px 0;"><strong>Amount Paid:</strong> ${tradeline.total_amount}</p>
-        </div>
-        
-        <h4 style="color: #374151; margin: 20px 0 15px 0;">Required Actions:</h4>
-        <div style="background-color: #fff7ed; border-left: 4px solid #F59E0B; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
-            <ol style="margin: 0; padding-left: 20px; color: #6b7280; line-height: 1.6;">
-                <li style="margin: 5px 0;"><strong>Remove the client</strong> as an authorized user from your credit card account</li>
-                <li style="margin: 5px 0;"><strong>Update your account</strong> to reflect the removal</li>
-                <li style="margin: 5px 0;"><strong>Verify removal</strong> within 3-5 business days</li>
-                <li style="margin: 5px 0;"><strong>Contact support</strong> if you need assistance with the removal process</li>
-            </ol>
-        </div>
-        
-        <div style="background-color: #fef2f2; border: 1px solid #fecaca; padding: 15px; border-radius: 6px; margin: 25px 0;">
-            <p style="margin: 0; color: #DC2626; font-weight: 600; font-size: 14px;">
-                ⚠️ Important: Failure to remove expired clients promptly may affect your tradeline performance and future earnings.
-            </p>
-        </div>
-        
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="https://rocket-app.tiberbuhealth.com/app" 
-               style="background-color: #DC2626; color: white; padding: 12px 24px; text-decoration: none; 
-                      border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">
-                Access Seller Portal
-            </a>
-        </div>
-        
-        <p style="color: #6b7280; margin: 25px 0 0 0; font-size: 16px;">
-            If you have any questions about the removal process, please contact our support team immediately.
-        </p>
-        {email_footer}"""
-        
-        # Send email
-        frappe.sendmail(
+        # Send email using template
+        send_email_template(
+            template_name="Cardholder Removal Required",
             recipients=[tradeline.cardholder_email],
-            subject=subject,
-            message=message,
-            header=["Client Removal Required", "red"]
+            parameters=template_params
         )
         
-        frappe.logger().info(f"Cardholder removal notification sent to {tradeline.cardholder_email} for tradeline {tradeline.name}")
+        print(f"Cardholder removal notification sent to {tradeline.cardholder_email} for tradeline {tradeline.name}")
         
     except Exception as e:
         frappe.log_error(f"Failed to send cardholder removal notification: {str(e)}", "Cardholder Notification Error")
@@ -203,84 +162,34 @@ def send_client_expiration_notification(tradeline):
         if not tradeline.client_email:
             return
         
-        # Get consistent email header and footer
-        email_header = get_email_header()
-        email_footer = get_email_footer(tradeline.client_email)
+        # Calculate service duration
+        service_duration = "N/A"
+        if tradeline.completion_date and tradeline.expiry_date:
+            service_duration = str((getdate(tradeline.expiry_date) - getdate(tradeline.completion_date)).days)
         
-        # Prepare email content
-        subject = f"Tradeline Expired - {tradeline.bank_name or 'Your Tradeline'}"
+        # Prepare template parameters
+        template_params = {
+            "customer_name": tradeline.customer_name,
+            "tradeline_id": tradeline.name,
+            "bank_name": tradeline.bank_name or 'N/A',
+            "credit_limit": f"{tradeline.credit_limit:,.0f}" if tradeline.credit_limit else "N/A",
+            "age_year": tradeline.age_year or 0,
+            "age_month": tradeline.age_month or 0,
+            "completion_date": tradeline.completion_date or 'N/A',
+            "expiry_date": str(tradeline.expiry_date),
+            "total_amount": f"{tradeline.total_amount:,.2f}" if tradeline.total_amount else "0.00",
+            "service_duration": service_duration,
+            "quantity": tradeline.quantity or 1
+        }
         
-        message = f"""{email_header}
-        <h3 style="color: #F59E0B; margin: 0 0 20px 0;">Your Tradeline Has Expired</h3>
-        <p style="color: #374151; font-size: 16px; margin: 0 0 10px 0;">Dear {tradeline.customer_name},</p>
-        
-        <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 0 0 25px 0;">
-            Your tradeline subscription has reached its expiration date. Your authorized user status has been scheduled for removal from the tradeline account.
-        </p>
-        
-        <h4 style="color: #374151; margin: 20px 0 15px 0;">Tradeline Summary:</h4>
-        <div style="background-color: #f9fafb; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
-            <p style="margin: 5px 0;"><strong>Tradeline ID:</strong> {tradeline.name}</p>
-            <p style="margin: 5px 0;"><strong>Bank:</strong> {tradeline.bank_name or 'N/A'}</p>
-            <p style="margin: 5px 0;"><strong>Credit Limit:</strong> ${tradeline.credit_limit:,}</p>
-            <p style="margin: 5px 0;"><strong>Account Age:</strong> {tradeline.age_year} years {tradeline.age_month or 0} months</p>
-            <p style="margin: 5px 0;"><strong>Subscription Period:</strong> {tradeline.completion_date or 'N/A'} to {tradeline.expiry_date}</p>
-            <p style="margin: 5px 0;"><strong>Amount Paid:</strong> ${tradeline.total_amount}</p>
-            <p style="margin: 5px 0;"><strong>Status:</strong> <span style="color: #F59E0B; font-weight: bold;">Expired</span></p>
-        </div>
-        
-        <h4 style="color: #374151; margin: 20px 0 15px 0;">What Happens Next:</h4>
-        <div style="background-color: #fff7ed; border-left: 4px solid #F59E0B; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
-            <ul style="margin: 0; padding-left: 20px; color: #6b7280; line-height: 1.6;">
-                <li style="margin: 8px 0;"><strong>Removal Process:</strong> You will be removed as an authorized user within 3-5 business days</li>
-                <li style="margin: 8px 0;"><strong>Credit Report Impact:</strong> The tradeline may continue to appear on your credit report for some time after removal</li>
-                <li style="margin: 8px 0;"><strong>Score Changes:</strong> Your credit score may be affected once the tradeline is removed</li>
-                <li style="margin: 8px 0;"><strong>New Tradelines:</strong> Browse our marketplace for additional tradeline opportunities</li>
-            </ul>
-        </div>
-        
-        <h4 style="color: #374151; margin: 20px 0 15px 0;">Service Review:</h4>
-        <div style="background-color: #f0f9ff; border-left: 4px solid #0EA5E9; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
-            <p style="margin: 0 0 15px 0; color: #374151;">
-                We hope this tradeline helped improve your credit profile. Your feedback is valuable to us and helps improve our service.
-            </p>
-            <p style="margin: 0; color: #6b7280;">
-                <strong>Duration:</strong> {(getdate(tradeline.expiry_date) - getdate(tradeline.completion_date or tradeline.expiry_date)).days if tradeline.completion_date else 'N/A'} days<br>
-                <strong>Investment:</strong> ${tradeline.total_amount} for {tradeline.quantity} spot(s)
-            </p>
-        </div>
-        
-        <div style="text-align: center; margin: 30px 0;">
-            <div style="margin-bottom: 15px;">
-                <a href="https://rocket-app.tiberbuhealth.com/app" 
-                   style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; 
-                          border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block; margin-right: 10px;">
-                    Browse New Tradelines
-                </a>
-            </div>
-            <div>
-                <a href="https://rocket-app.tiberbuhealth.com/support" 
-                   style="background-color: #6b7280; color: white; padding: 10px 20px; text-decoration: none; 
-                          border-radius: 6px; font-weight: 500; font-size: 14px; display: inline-block;">
-                    Contact Support
-                </a>
-            </div>
-        </div>
-        
-        <p style="color: #6b7280; margin: 25px 0 0 0; font-size: 16px;">
-            Thank you for choosing RocketTradeline. We look forward to serving you again in the future!
-        </p>
-        {email_footer}"""
-        
-        # Send email
-        frappe.sendmail(
+        # Send email using template
+        send_email_template(
+            template_name="Client Tradeline Expiration",
             recipients=[tradeline.client_email],
-            subject=subject,
-            message=message,
-            header=["Tradeline Expiration Notice", "orange"]
+            parameters=template_params
         )
         
-        frappe.logger().info(f"Client expiration notification sent to {tradeline.client_email} for tradeline {tradeline.name}")
+        print(f"Client expiration notification sent to {tradeline.client_email} for tradeline {tradeline.name}")
         
     except Exception as e:
         frappe.log_error(f"Failed to send client expiration notification: {str(e)}", "Client Notification Error")
@@ -349,3 +258,120 @@ def get_expiring_tradelines(days_ahead=7):
         
     except Exception as e:
         frappe.throw(f"Failed to fetch expiring tradelines: {str(e)}")
+
+
+def process_email_queue():
+    """
+    Process unsent emails in the email queue
+    Runs every minute to ensure emails are sent promptly
+    """
+    try:
+        # Use safer logging that doesn't require file permissions
+        print("Starting email queue processing...")
+        
+        # Get count of pending emails before processing
+        pending_count = frappe.db.count("Email Queue", filters={
+            "status": "Not Sent"
+        })
+        
+        if pending_count == 0:
+            print("No pending emails in queue")
+            return {"success": True, "message": "No pending emails", "processed": 0}
+        
+        print(f"Found {pending_count} pending emails in queue")
+        
+        # Process the email queue using Frappe's built-in flush function
+        flush()
+        
+        # Get count of remaining emails after processing
+        remaining_count = frappe.db.count("Email Queue", filters={
+            "status": "Not Sent"
+        })
+        
+        processed_count = pending_count - remaining_count
+        
+        if processed_count > 0:
+            print(f"Successfully processed {processed_count} emails from queue")
+        
+        # Commit the transaction
+        frappe.db.commit()
+        
+        return {
+            "success": True,
+            "message": f"Processed {processed_count} emails",
+            "processed": processed_count,
+            "remaining": remaining_count,
+            "total_found": pending_count
+        }
+        
+    except Exception as e:
+        error_msg = f"Email queue processing failed: {str(e)}"
+        # Use frappe.log_error which is safer than frappe.logger()
+        frappe.log_error(error_msg, "Email Queue Processing Error")
+        print(error_msg)
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def manual_process_email_queue():
+    """
+    Manual trigger for email queue processing (for testing/admin use)
+    """
+    try:
+        current_user = frappe.session.user
+        if current_user != "Administrator" and "System Manager" not in frappe.get_roles(current_user):
+            frappe.throw("Access denied. Administrator role required.")
+        
+        result = process_email_queue()
+        return result
+        
+    except Exception as e:
+        frappe.throw(f"Manual email queue processing failed: {str(e)}")
+
+
+@frappe.whitelist()
+def get_email_queue_status():
+    """
+    Get current email queue status (for monitoring)
+    """
+    try:
+        current_user = frappe.session.user
+        if current_user != "Administrator" and "System Manager" not in frappe.get_roles(current_user):
+            frappe.throw("Access denied. Administrator role required.")
+        
+        # Get email queue statistics
+        total_emails = frappe.db.count("Email Queue")
+        pending_emails = frappe.db.count("Email Queue", filters={"status": "Not Sent"})
+        sent_emails = frappe.db.count("Email Queue", filters={"status": "Sent"})
+        error_emails = frappe.db.count("Email Queue", filters={"status": "Error"})
+        
+        # Get recent pending emails
+        recent_pending = frappe.get_all("Email Queue",
+            filters={"status": "Not Sent"},
+            fields=["name", "recipient", "subject", "creation", "modified", "retry"],
+            order_by="creation desc",
+            limit=10
+        )
+        
+        # Get recent error emails
+        recent_errors = frappe.get_all("Email Queue",
+            filters={"status": "Error"},
+            fields=["name", "recipient", "subject", "creation", "modified", "retry", "error"],
+            order_by="modified desc",
+            limit=5
+        )
+        
+        return {
+            "success": True,
+            "statistics": {
+                "total": total_emails,
+                "pending": pending_emails,
+                "sent": sent_emails,
+                "error": error_emails
+            },
+            "recent_pending": recent_pending,
+            "recent_errors": recent_errors
+        }
+        
+    except Exception as e:
+        frappe.throw(f"Failed to fetch email queue status: {str(e)}")

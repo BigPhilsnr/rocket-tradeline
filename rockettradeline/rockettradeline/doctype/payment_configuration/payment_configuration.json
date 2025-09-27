@@ -40,6 +40,9 @@
   "fees_and_limits",
   "min_amount",
   "max_amount",
+  "enable_calculation",
+  "fee_formula",
+  "column_break_fee_calc",
   "fixed_fee",
   "percentage_fee"
  ],
@@ -221,6 +224,23 @@
    "fieldname": "max_amount",
    "fieldtype": "Currency",
    "label": "Maximum Amount"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_calculation",
+   "fieldtype": "Check",
+   "label": "Enable Fee Calculation"
+  },
+  {
+   "depends_on": "enable_calculation",
+   "description": "Use 'amount' as variable. Example: (amount * 0.029) + 0.30",
+   "fieldname": "fee_formula",
+   "fieldtype": "Small Text",
+   "label": "Fee Formula"
+  },
+  {
+   "fieldname": "column_break_fee_calc",
+   "fieldtype": "Column Break"
   },
   {
    "default": "0",

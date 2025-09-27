@@ -3,6 +3,7 @@ from frappe import _
 from frappe.utils import flt, now_datetime, getdate
 from .auth import jwt_required, get_authenticated_user, get_email_header, get_email_footer
 from .utils import is_administrator
+from rockettradeline.rockettradeline.doctype.email_template_custom.email_template_custom import send_email_template
 
 
 @frappe.whitelist(allow_guest=True)
@@ -64,36 +65,56 @@ def get_client_tradelines(status=None, limit=20, start=0, customer=None, tradeli
         # Get total count
         count_query = f"""
             SELECT COUNT(*) as total
-            FROM `tabClient Tradelines`
+            FROM `tabClient Tradelines` ct
+            LEFT JOIN `tabTradeline` t ON ct.tradeline = t.name
+            LEFT JOIN `tabTradeline Bank` tb ON t.bank = tb.name
             {where_clause}
         """
         
         total_result = frappe.db.sql(count_query, values, as_dict=True)
         total = total_result[0].total if total_result else 0
         
-        # Get paginated results
+        # Get paginated results with tradeline details
         query = f"""
             SELECT 
-                name,
-                title,
-                customer,
-                customer_name,
-                status,
-                created_date,
-                cart,
-                payment_request,
-                tradeline,
-                tradeline_name,
-                quantity,
-                unit_price,
-                total_amount,
-                notes,
-                expiry_date,
-                assigned_to,
-                completion_date,
-                creation,
-                modified
-            FROM `tabClient Tradelines`
+                ct.name,
+                ct.title,
+                ct.customer,
+                ct.customer_name,
+                ct.status,
+                ct.created_date,
+                ct.cart,
+                ct.payment_request,
+                ct.tradeline,
+                ct.tradeline_name,
+                ct.quantity,
+                ct.unit_price,
+                ct.total_amount,
+                ct.notes,
+                ct.expiry_date,
+                ct.assigned_to,
+                ct.completion_date,
+                ct.creation,
+                ct.modified,
+                ct.commission_paid,
+                ct.refund_username,
+                ct.refund_security_question,
+                ct.refund_security_answer,
+                ct.refund_pin,
+                ct.refund_reason,
+                ct.refund_link,
+                ct.swapped,
+                ct.swapped_on,
+                t.bank,
+                tb.bank_name,
+                tb.image as bank_logo,
+                t.credit_limit,
+                t.age_year,
+                t.age_month,
+                t.closing_date
+            FROM `tabClient Tradelines` ct
+            LEFT JOIN `tabTradeline` t ON ct.tradeline = t.name
+            LEFT JOIN `tabTradeline Bank` tb ON t.bank = tb.name
             {where_clause}
             ORDER BY modified DESC
             LIMIT %s OFFSET %s
@@ -117,6 +138,13 @@ def get_client_tradelines(status=None, limit=20, start=0, customer=None, tradeli
                 "payment_request_id": tradeline.payment_request,
                 "tradeline": tradeline.tradeline,
                 "tradeline_name": tradeline.tradeline_name,
+                "bank": tradeline.bank,  # Bank from tradeline master
+                "bank_name": tradeline.bank_name,  # Bank name from tradeline bank table
+                "bank_logo": tradeline.bank_logo,  # Bank logo from tradeline bank table
+                "credit_limit": tradeline.credit_limit,  # From tradeline master
+                "age_year": tradeline.age_year,  # From tradeline master
+                "age_month": tradeline.age_month,  # From tradeline master
+                "closing_date": tradeline.closing_date,  # From tradeline master
                 "quantity": tradeline.quantity,
                 "unit_price": float(tradeline.unit_price) if tradeline.unit_price else 0.0,
                 "total_amount": float(tradeline.total_amount) if tradeline.total_amount else 0.0,
@@ -125,7 +153,16 @@ def get_client_tradelines(status=None, limit=20, start=0, customer=None, tradeli
                 "assigned_to": tradeline.assigned_to,
                 "completion_date": tradeline.completion_date,
                 "creation": tradeline.creation,
-                "modified": tradeline.modified
+                "modified": tradeline.modified,
+                "commission_paid": tradeline.commission_paid,
+                "refund_username": tradeline.refund_username,
+                "refund_security_question": tradeline.refund_security_question,
+                "refund_security_answer": tradeline.refund_security_answer,
+                "refund_pin": tradeline.refund_pin,
+                "refund_reason": tradeline.refund_reason,
+                "refund_link": tradeline.refund_link,
+                "swapped": tradeline.swapped,
+                "swapped_on": tradeline.swapped_on
             }
             formatted_tradelines.append(formatted_tradeline)
         
@@ -143,6 +180,10 @@ def get_client_tradelines(status=None, limit=20, start=0, customer=None, tradeli
     except Exception as e:
         frappe.throw(f"Failed to fetch client tradelines: {str(e)}")
 
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
+def swap(client_tradeline, tradeline):
+    return frappe.get_doc("Client Tradelines", client_tradeline).swap(tradeline)
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
@@ -219,12 +260,22 @@ def get_my_client_tradelines(status=None, limit=20, start=0):
                 ct.completion_date,
                 ct.creation,
                 ct.modified,
+                ct.commission_paid,
+                ct.refund_username,
+                ct.refund_security_question,
+                ct.refund_security_answer,
+                ct.refund_pin,
+                ct.refund_reason,
+                ct.refund_link,
+                ct.swapped,
+                ct.swapped_on,
                 t.bank,
                 tb.bank_name,
                 tb.image as bank_logo,
                 t.credit_limit,
                 t.age_year,
-                t.age_month
+                t.age_month,
+                t.closing_date
             FROM `tabClient Tradelines` ct
             LEFT JOIN `tabTradeline` t ON ct.tradeline = t.name
             LEFT JOIN `tabTradeline Bank` tb ON t.bank = tb.name
@@ -259,6 +310,7 @@ def get_my_client_tradelines(status=None, limit=20, start=0):
                 "credit_limit": tradeline.credit_limit,  # From tradeline master
                 "age_year": tradeline.age_year,  # From tradeline master
                 "age_month": tradeline.age_month,  # From tradeline master
+                "closing_date": tradeline.closing_date,  # From tradeline master
                 "quantity": tradeline.quantity,
                 "unit_price": float(tradeline.unit_price) if tradeline.unit_price else 0.0,
                 "total_amount": float(tradeline.total_amount) if tradeline.total_amount else 0.0,
@@ -268,7 +320,16 @@ def get_my_client_tradelines(status=None, limit=20, start=0):
                 "completion_date": tradeline.completion_date,
                 "expiry_date": tradeline.expiry_date,
                 "creation": tradeline.creation,
-                "modified": tradeline.modified
+                "modified": tradeline.modified,
+                "commission_paid": tradeline.commission_paid,
+                "refund_username": tradeline.refund_username,
+                "refund_security_question": tradeline.refund_security_question,
+                "refund_security_answer": tradeline.refund_security_answer,
+                "refund_pin": tradeline.refund_pin,
+                "refund_reason": tradeline.refund_reason,
+                "refund_link": tradeline.refund_link,
+                "swapped": tradeline.swapped,
+                "swapped_on": tradeline.swapped_on
             }
             formatted_tradelines.append(formatted_tradeline)
         
@@ -405,7 +466,16 @@ def get_client_tradeline_details(tradeline_id):
                 "assigned_to": tradeline_doc.assigned_to,
                 "completion_date": tradeline_doc.completion_date,
                 "creation": tradeline_doc.creation,
-                "modified": tradeline_doc.modified
+                "modified": tradeline_doc.modified,
+                "commission_paid": tradeline_doc.commission_paid,
+                "refund_username": getattr(tradeline_doc, 'refund_username', None),
+                "refund_security_question": getattr(tradeline_doc, 'refund_security_question', None),
+                "refund_security_answer": getattr(tradeline_doc, 'refund_security_answer', None),
+                "refund_pin": getattr(tradeline_doc, 'refund_pin', None),
+                "refund_reason": getattr(tradeline_doc, 'refund_reason', None),
+                "refund_link": getattr(tradeline_doc, 'refund_link', None),
+                "swapped": getattr(tradeline_doc, 'swapped', None),
+                "swapped_on": getattr(tradeline_doc, 'swapped_on', None)
             },
             "attachments": attachments,
             "related_documents": {
@@ -631,7 +701,9 @@ def get_client_tradeline_statistics(customer=None):
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def update_client_tradeline_status(tradeline_id, new_status, notes=None):
+def update_client_tradeline_status(tradeline_id, new_status=None, notes=None, commission_paid=None, 
+                                 refund_username=None, refund_password=None, refund_security_question=None, 
+                                 refund_security_answer=None, refund_pin=None, refund_reason=None, refund_link=None):
     """Update client tradeline status (Admin only or assigned user)"""
     try:
         current_user = get_authenticated_user()
@@ -644,18 +716,52 @@ def update_client_tradeline_status(tradeline_id, new_status, notes=None):
         # Get the tradeline document
         tradeline_doc = frappe.get_doc("Client Tradelines", tradeline_id)
         
+        # Update commission_paid if provided and user is admin
+        if is_admin and commission_paid is not None:
+            tradeline_doc.commission_paid = commission_paid
+        
         # Check permissions
         # if not is_admin and tradeline_doc.assigned_to != current_user:
         #     frappe.throw(_("Access denied. Only administrators or assigned users can update tradeline status."))
         
+        # If new_status is "Refund Requested", validate required refund fields
+        if new_status == "Refund Requested":
+            required_refund_fields = {
+                "refund_username": refund_username,
+                "refund_password": refund_password,
+                "refund_security_question": refund_security_question,
+                "refund_security_answer": refund_security_answer,
+                "refund_pin": refund_pin,
+                "refund_reason": refund_reason,
+                "refund_link": refund_link
+            }
+            
+            missing_fields = []
+            for field_name, field_value in required_refund_fields.items():
+                if not field_value or str(field_value).strip() == "":
+                    missing_fields.append(field_name.replace("_", " ").title())
+            
+            if missing_fields:
+                frappe.throw(_(f"The following refund fields are required when status is 'Refund Requested': {', '.join(missing_fields)}"))
+            
+            # Set refund fields
+            tradeline_doc.refund_username = refund_username
+            tradeline_doc.refund_password = refund_password
+            tradeline_doc.refund_security_question = refund_security_question
+            tradeline_doc.refund_security_answer = refund_security_answer
+            tradeline_doc.refund_pin = refund_pin
+            tradeline_doc.refund_reason = refund_reason
+            tradeline_doc.refund_link = refund_link
+        
         # Validate new status
-        valid_statuses = ["Active", "Inactive", "Completed", "Expired", "Cancelled"]
-        if new_status not in valid_statuses:
+        valid_statuses = ["Active", "Inactive", "Completed", "Expired", "Cancelled", "Refunded", "Refund Requested"]
+        if new_status and new_status not in valid_statuses:
             frappe.throw(_(f"Invalid status. Valid options are: {', '.join(valid_statuses)}"))
         
         # Update the document
         old_status = tradeline_doc.status
-        tradeline_doc.status = new_status
+        if new_status:
+            tradeline_doc.status = new_status
         
         # Add notes if provided
         if notes:
@@ -671,15 +777,28 @@ def update_client_tradeline_status(tradeline_id, new_status, notes=None):
         tradeline_doc.save(ignore_permissions=True)
         frappe.db.commit()
         
-        return {
+        response = {
             "success": True,
-            "message": f"Tradeline status updated from '{old_status}' to '{new_status}'",
+            "message": f"Tradeline status updated from '{old_status}' to '{new_status}'" if new_status else "Tradeline updated successfully",
             "tradeline_id": tradeline_id,
             "old_status": old_status,
             "new_status": new_status,
             "updated_by": current_user,
             "updated_at": now_datetime()
         }
+        
+        # Include refund fields in response if they were provided
+        if new_status == "Refund Requested":
+            response["refund_details"] = {
+                "refund_username": refund_username,
+                "refund_security_question": refund_security_question,
+                "refund_pin": refund_pin,
+                "refund_reason": refund_reason,
+                "refund_link": refund_link
+                # Note: We don't return password and security answer for security reasons
+            }
+        
+        return response
 
     except Exception as e:
         frappe.throw(f"Failed to update client tradeline status: {str(e)}")
@@ -750,6 +869,15 @@ def get_client_tradelines_for_sellers(status=None, limit=20, start=0):
                 ct.completion_date,
                 ct.creation,
                 ct.modified,
+                ct.commission_paid,
+                ct.refund_username,
+                ct.refund_security_question,
+                ct.refund_security_answer,
+                ct.refund_pin,
+                ct.refund_reason,
+                ct.refund_link,
+                ct.swapped,
+                ct.swapped_on,
                 t.bank,
                 tb.bank_name,
                 tb.image as bank_logo,
@@ -798,6 +926,14 @@ def get_client_tradelines_for_sellers(status=None, limit=20, start=0):
                 "completion_date": tradeline.completion_date,
                 "creation": tradeline.creation,
                 "modified": tradeline.modified,
+                "commission_paid": tradeline.commission_paid,
+                "refund_username": tradeline.refund_username,
+                "refund_security_question": tradeline.refund_security_question,
+                "refund_security_answer": tradeline.refund_security_answer,
+                "refund_pin": tradeline.refund_pin,
+                "refund_reason": tradeline.refund_reason,
+                "swapped": tradeline.swapped,
+                "swapped_on": tradeline.swapped_on,
                 # Tradeline details
                 "bank": tradeline.bank,
                 "bank_name": tradeline.bank_name,
@@ -1089,107 +1225,38 @@ def send_refund_request_notification(client_tradeline_doc, requesting_user, refu
             except:
                 pass
         
-        # Get consistent email header and footer
-        email_header = get_email_header()
-        email_footer = get_email_footer("info@rockettradeline.com")
+        # Prepare template parameters
+        template_params = {
+            "client_tradeline_id": client_tradeline_doc.name,
+            "request_date": now_datetime().strftime('%Y-%m-%d %H:%M:%S'),
+            "requesting_user": requesting_user,
+            "previous_status": client_tradeline_doc.get_doc_before_save().status if client_tradeline_doc.get_doc_before_save() else 'N/A',
+            "refund_reason": refund_reason or 'No reason provided',
+            "customer_id": client_tradeline_doc.customer,
+            "customer_name": client_tradeline_doc.customer_name,
+            "customer_email": customer_doc.email_id if customer_doc else 'N/A',
+            "customer_phone": customer_doc.mobile_no if customer_doc else 'N/A',
+            "tradeline_id": client_tradeline_doc.tradeline or 'N/A',
+            "tradeline_name": client_tradeline_doc.tradeline_name or 'N/A',
+            "bank_name": bank_name,
+            "credit_limit": f"{tradeline_doc.credit_limit:,}" if tradeline_doc and tradeline_doc.credit_limit else 'N/A',
+            "tradeline_age": f"{tradeline_doc.age_year} years {tradeline_doc.age_month or 0} months" if tradeline_doc else 'N/A',
+            "quantity": client_tradeline_doc.quantity,
+            "unit_price": f"{client_tradeline_doc.unit_price:.2f}",
+            "total_amount": f"{client_tradeline_doc.total_amount:.2f}",
+            "payment_request_id": client_tradeline_doc.payment_request or 'N/A',
+            "cart_id": client_tradeline_doc.cart or 'N/A',
+            "purchase_date": str(client_tradeline_doc.creation),
+            "completion_date": client_tradeline_doc.completion_date or 'N/A',
+            "expiry_date": client_tradeline_doc.expiry_date or 'N/A',
+            "last_modified": str(client_tradeline_doc.modified)
+        }
         
-        # Prepare email content
-        subject = f"Refund Request - Client Tradeline {client_tradeline_doc.name}"
-        
-        message = f"""{email_header}
-        <h3 style="color: #DC2626; margin: 0 0 20px 0;">🔄 New Refund Request</h3>
-        <p style="color: #374151; font-size: 16px; margin: 0 0 10px 0;">Dear Admin,</p>
-        
-        <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 0 0 25px 0;">
-            A customer has requested a refund for their client tradeline. Please review the details below and take appropriate action.
-        </p>
-        
-        <h4 style="color: #374151; margin: 20px 0 15px 0;">Refund Request Details:</h4>
-        <div style="background-color: #fef2f2; border-left: 4px solid #DC2626; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
-            <p style="margin: 5px 0;"><strong>Client Tradeline ID:</strong> {client_tradeline_doc.name}</p>
-            <p style="margin: 5px 0;"><strong>Request Date:</strong> {now_datetime().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            <p style="margin: 5px 0;"><strong>Requested By:</strong> {requesting_user}</p>
-            <p style="margin: 5px 0;"><strong>Previous Status:</strong> {client_tradeline_doc.get_doc_before_save().status if client_tradeline_doc.get_doc_before_save() else 'N/A'}</p>
-            <p style="margin: 5px 0;"><strong>Current Status:</strong> <span style="color: #DC2626; font-weight: bold;">Refund Requested</span></p>
-            {f'<p style="margin: 5px 0;"><strong>Refund Reason:</strong> {refund_reason}</p>' if refund_reason else ''}
-        </div>
-        
-        <h4 style="color: #374151; margin: 20px 0 15px 0;">Customer Information:</h4>
-        <div style="background-color: #f9fafb; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
-            <p style="margin: 5px 0;"><strong>Customer ID:</strong> {client_tradeline_doc.customer}</p>
-            <p style="margin: 5px 0;"><strong>Customer Name:</strong> {client_tradeline_doc.customer_name}</p>
-            <p style="margin: 5px 0;"><strong>Customer Email:</strong> {customer_doc.email_id if customer_doc else 'N/A'}</p>
-            <p style="margin: 5px 0;"><strong>Customer Phone:</strong> {customer_doc.mobile_no if customer_doc else 'N/A'}</p>
-        </div>
-        
-        <h4 style="color: #374151; margin: 20px 0 15px 0;">Tradeline Information:</h4>
-        <div style="background-color: #f0f9ff; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
-            <p style="margin: 5px 0;"><strong>Tradeline ID:</strong> {client_tradeline_doc.tradeline or 'N/A'}</p>
-            <p style="margin: 5px 0;"><strong>Tradeline Name:</strong> {client_tradeline_doc.tradeline_name or 'N/A'}</p>
-            <p style="margin: 5px 0;"><strong>Bank:</strong> {bank_name}</p>
-            <p style="margin: 5px 0;"><strong>Credit Limit:</strong> ${tradeline_doc.credit_limit:,} if tradeline_doc and tradeline_doc.credit_limit else 'N/A'</p>
-            <p style="margin: 5px 0;"><strong>Age:</strong> {f"{tradeline_doc.age_year} years {tradeline_doc.age_month or 0} months" if tradeline_doc else 'N/A'}</p>
-            <p style="margin: 5px 0;"><strong>Quantity Purchased:</strong> {client_tradeline_doc.quantity}</p>
-        </div>
-        
-        <h4 style="color: #374151; margin: 20px 0 15px 0;">Financial Information:</h4>
-        <div style="background-color: #fff7ed; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
-            <p style="margin: 5px 0;"><strong>Unit Price:</strong> ${client_tradeline_doc.unit_price}</p>
-            <p style="margin: 5px 0;"><strong>Total Amount Paid:</strong> <span style="font-size: 18px; font-weight: bold; color: #DC2626;">${client_tradeline_doc.total_amount}</span></p>
-            <p style="margin: 5px 0;"><strong>Payment Request ID:</strong> {client_tradeline_doc.payment_request or 'N/A'}</p>
-            <p style="margin: 5px 0;"><strong>Cart ID:</strong> {client_tradeline_doc.cart or 'N/A'}</p>
-        </div>
-        
-        <h4 style="color: #374151; margin: 20px 0 15px 0;">Timeline Information:</h4>
-        <div style="background-color: #f3f4f6; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
-            <p style="margin: 5px 0;"><strong>Purchase Date:</strong> {client_tradeline_doc.creation}</p>
-            <p style="margin: 5px 0;"><strong>Completion Date:</strong> {client_tradeline_doc.completion_date or 'N/A'}</p>
-            <p style="margin: 5px 0;"><strong>Expiry Date:</strong> {client_tradeline_doc.expiry_date or 'N/A'}</p>
-            <p style="margin: 5px 0;"><strong>Last Modified:</strong> {client_tradeline_doc.modified}</p>
-        </div>
-        
-        <h4 style="color: #374151; margin: 20px 0 15px 0;">Required Actions:</h4>
-        <div style="background-color: #fef3c7; border-left: 4px solid #F59E0B; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
-            <ol style="margin: 0; padding-left: 20px; color: #6b7280; line-height: 1.6;">
-                <li style="margin: 8px 0;"><strong>Review the refund request</strong> and validate the reason</li>
-                <li style="margin: 8px 0;"><strong>Check payment records</strong> and transaction history</li>
-                <li style="margin: 8px 0;"><strong>Verify tradeline removal</strong> if applicable</li>
-                <li style="margin: 8px 0;"><strong>Process refund</strong> through appropriate payment method</li>
-                <li style="margin: 8px 0;"><strong>Update tradeline status</strong> to "Refunded" once processed</li>
-                <li style="margin: 8px 0;"><strong>Notify customer</strong> of refund processing status</li>
-            </ol>
-        </div>
-        
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="https://rocket-app.tiberbuhealth.com/app/client-tradelines/{client_tradeline_doc.name}" 
-               style="background-color: #DC2626; color: white; padding: 14px 28px; text-decoration: none; 
-                      border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block; margin-right: 10px;">
-                Review Tradeline
-            </a>
-            <a href="https://rocket-app.tiberbuhealth.com/app/customer/{client_tradeline_doc.customer}" 
-               style="background-color: #6b7280; color: white; padding: 14px 28px; text-decoration: none; 
-                      border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">
-                View Customer
-            </a>
-        </div>
-        
-        <div style="background-color: #fef2f2; border: 1px solid #fecaca; padding: 15px; border-radius: 6px; margin: 25px 0;">
-            <p style="margin: 0; color: #DC2626; font-weight: 600; font-size: 14px;">
-                ⚠️ Priority: Please process this refund request within 2-3 business days to maintain customer satisfaction.
-            </p>
-        </div>
-        
-        <p style="color: #6b7280; margin: 25px 0 0 0; font-size: 16px;">
-            This is an automated notification from the RocketTradeline refund system.
-        </p>
-        {email_footer}"""
-        
-        # Send email to admin
-        frappe.sendmail(
+        # Send email using template
+        send_email_template(
+            template_name="Refund Request Notification",
             recipients=["info@rockettradeline.com"],
-            subject=subject,
-            message=message,
-            header=["Refund Request Notification", "red"]
+            parameters=template_params
         )
         
         # Log the notification

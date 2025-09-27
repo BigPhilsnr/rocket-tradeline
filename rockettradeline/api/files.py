@@ -44,8 +44,235 @@ def get_fallback_file_names():
         'dl_front', 'dl_back', 'proof_of_address', 'client_signature', 
         'proof_of_enrollment', 'proof_of_refund', 'credit_report', 
         'authorized_user_guide', 'privacy_policy', 'terms_conditions', 
-        'refund_policy', 'authorized_user_agreement'
+        'refund_policy', 'authorized_user_agreement', 'faq_import'
     ]
+
+def create_or_get_folder(folder_name, parent_folder="Home"):
+    """
+    Create folder if it doesn't exist, or return existing folder name
+    
+    Args:
+        folder_name (str): Name of the folder to create/get
+        parent_folder (str): Parent folder path (default: "Home")
+        
+    Returns:
+        str: Folder path that can be used in save_file
+    """
+    try:
+        # Check if folder already exists
+        existing_folder = frappe.get_all("File",
+            filters={
+                "is_folder": 1,
+                "file_name": folder_name,
+                "folder": parent_folder
+            },
+            fields=["name", "file_name"],
+            limit=1
+        )
+        
+        if existing_folder:
+            # Return the folder path format used by Frappe (always include parent folder)
+            return f"{parent_folder}/{folder_name}"
+        
+        # Create new folder
+        folder_doc = frappe.get_doc({
+            "doctype": "File",
+            "file_name": folder_name,
+            "is_folder": 1,
+            "folder": parent_folder
+        })
+        folder_doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        
+        frappe.logger().info(f"Created folder '{folder_name}' in '{parent_folder}'")
+        
+        # Return the folder path format used by Frappe (always include parent folder)
+        return f"{parent_folder}/{folder_name}"
+        
+    except Exception as e:
+        frappe.log_error(f"Error creating/getting folder '{folder_name}': {str(e)}", "Folder Management")
+        # Fallback to Home folder if folder creation fails
+        return parent_folder
+def process_faq_import(file_content, filename):
+    """
+    Process FAQ import from file content
+    Expected columns: question, answer, category (optional), sort_order (optional), is_published (optional)
+    """
+    try:
+        import pandas as pd
+        import io
+        
+        # Validate file type
+        filename_lower = filename.lower()
+        if not (filename_lower.endswith('.csv') or filename_lower.endswith('.xlsx') or filename_lower.endswith('.xls')):
+            return {
+                "success": False,
+                "message": "Invalid file format. Please upload CSV (.csv) or Excel (.xlsx, .xls) file."
+            }
+        
+        # Read file content based on type
+        try:
+            if filename_lower.endswith('.csv'):
+                # Read CSV file
+                df = pd.read_csv(io.BytesIO(file_content))
+            else:
+                # Read Excel file
+                df = pd.read_excel(io.BytesIO(file_content))
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Error reading file: {str(e)}"
+            }
+        
+        # Validate required columns
+        required_columns = ['question', 'answer']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        
+        if missing_columns:
+            return {
+                "success": False,
+                "message": f"Missing required columns: {', '.join(missing_columns)}. Required columns are: question, answer"
+            }
+        
+        # Optional columns with defaults
+        if 'category' not in df.columns:
+            df['category'] = None
+        if 'sort_order' not in df.columns:
+            df['sort_order'] = 0
+        if 'is_published' not in df.columns:
+            df['is_published'] = 1
+        
+        # Process each row
+        results = {
+            "created": [],
+            "updated": [],
+            "errors": [],
+            "skipped": []
+        }
+        
+        total_rows = len(df)
+        
+        for index, row in df.iterrows():
+            try:
+                # Clean and validate data
+                question = str(row['question']).strip() if pd.notna(row['question']) else ""
+                answer = str(row['answer']).strip() if pd.notna(row['answer']) else ""
+                category = str(row['category']).strip() if pd.notna(row['category']) and row['category'] else None
+                
+                # Validate required fields
+                if not question or not answer:
+                    results["skipped"].append({
+                        "row": index + 2,  # +2 because index starts at 0 and we have header
+                        "reason": "Empty question or answer",
+                        "question": question[:50] + "..." if len(question) > 50 else question
+                    })
+                    continue
+                
+                # Parse optional fields
+                try:
+                    sort_order = int(row['sort_order']) if pd.notna(row['sort_order']) else 0
+                except (ValueError, TypeError):
+                    sort_order = 0
+                
+                try:
+                    is_published = int(row['is_published']) if pd.notna(row['is_published']) else 1
+                    is_published = 1 if is_published else 0
+                except (ValueError, TypeError):
+                    is_published = 1
+                
+                # Check if FAQ with same question already exists
+                existing_faq = frappe.db.get_value("FAQ", {"question": question}, ["name", "answer"])
+                
+                if existing_faq:
+                    # Update existing FAQ
+                    faq_doc = frappe.get_doc("FAQ", existing_faq[0])
+                    
+                    # Check if content is different
+                    content_changed = (
+                        faq_doc.answer != answer or
+                        faq_doc.category != category or
+                        faq_doc.sort_order != sort_order or
+                        faq_doc.is_published != is_published
+                    )
+                    
+                    if content_changed:
+                        faq_doc.answer = answer
+                        faq_doc.category = category
+                        faq_doc.sort_order = sort_order
+                        faq_doc.is_published = is_published
+                        faq_doc.save(ignore_permissions=True)
+                        
+                        results["updated"].append({
+                            "row": index + 2,
+                            "question": question[:100] + "..." if len(question) > 100 else question,
+                            "faq_id": faq_doc.name,
+                            "action": "updated"
+                        })
+                    else:
+                        results["skipped"].append({
+                            "row": index + 2,
+                            "reason": "No changes detected",
+                            "question": question[:50] + "..." if len(question) > 50 else question
+                        })
+                else:
+                    # Create new FAQ
+                    faq_doc = frappe.get_doc({
+                        "doctype": "FAQ",
+                        "question": question,
+                        "answer": answer,
+                        "category": category,
+                        "sort_order": sort_order,
+                        "is_published": is_published
+                    })
+                    
+                    faq_doc.insert(ignore_permissions=True)
+                    
+                    results["created"].append({
+                        "row": index + 2,
+                        "question": question[:100] + "..." if len(question) > 100 else question,
+                        "faq_id": faq_doc.name,
+                        "action": "created"
+                    })
+                
+            except Exception as e:
+                results["errors"].append({
+                    "row": index + 2,
+                    "error": str(e),
+                    "question": str(row.get('question', ''))[:50] + "..." if len(str(row.get('question', ''))) > 50 else str(row.get('question', ''))
+                })
+        
+        # Commit all changes
+        frappe.db.commit()
+        
+        # Prepare summary
+        summary = {
+            "total_rows": total_rows,
+            "created": len(results["created"]),
+            "updated": len(results["updated"]),
+            "skipped": len(results["skipped"]),
+            "errors": len(results["errors"])
+        }
+        
+        return {
+            "success": True,
+            "message": f"FAQ import completed. Created: {summary['created']}, Updated: {summary['updated']}, Skipped: {summary['skipped']}, Errors: {summary['errors']}",
+            "summary": summary,
+            "details": results,
+            "import_type": "faq"
+        }
+        
+    except ImportError:
+        return {
+            "success": False,
+            "message": "pandas library not available. Please install pandas to use FAQ import functionality."
+        }
+    except Exception as e:
+        frappe.log_error(f"FAQ import error: {str(e)}", "FAQ Import")
+        return {
+            "success": False,
+            "message": f"Import failed: {str(e)}"
+        }
+
                  
 
 
@@ -101,6 +328,20 @@ def upload_file():
                     "message": f"Invalid file_name. Only allowed: {', '.join(allowed_file_names)}"
                 }
             
+            # Handle FAQ import if file_name is "faq_import"
+            if provided_file_name == 'faq_import':
+                # Check if user has admin permissions for FAQ import
+                if not is_administrator(current_user):
+                    return {
+                        "success": False,
+                        "message": "Access denied. Admin privileges required for FAQ import."
+                    }
+                
+                # Process FAQ import instead of regular file upload
+                uploaded_file.seek(0)  # Reset file pointer
+                file_content = uploaded_file.read()
+                return process_faq_import(file_content, uploaded_file.filename)
+            
             # Validate file
             validation_result = validate_file(uploaded_file)
             if not validation_result["valid"]:
@@ -121,9 +362,12 @@ def upload_file():
                 name_without_ext = os.path.splitext(base_filename)[0]
                 base_filename = f"{name_without_ext}{original_ext}"
             
-            doctype = form_data.get('doctype')
-            docname = form_data.get('docname')
+            doctype = form_data.get('doctype') 
+            docname = form_data.get('docname') 
             
+            if not doctype or not docname and is_private:
+                docname = frappe.get_value("Customer", {"email_id": current_user}, "name")
+                doctype = "Customer"
             if doctype and docname:
                 # Create custom filename: doctype_docname_filename
                 custom_filename = f"{doctype}_{docname}_{base_filename}"
@@ -131,13 +375,20 @@ def upload_file():
             else:
                 custom_filename = base_filename
             
+            # Determine folder for private files based on allowed field name
+            folder = form_data.get('folder', 'Home')
+            if is_private and provided_file_name:
+                # Create or get folder named after the allowed field
+                folder = create_or_get_folder(provided_file_name, "Home")
+                frappe.logger().info(f"Using folder '{folder}' for private file '{provided_file_name}'")
+            
             # Save file using Frappe's file manager
             file_doc = save_file(
                 fname=custom_filename,
                 content=uploaded_file.read(),
                 dt=doctype,
                 dn=docname,
-                folder=form_data.get('folder', 'Home'),
+                folder=folder,
                 is_private=is_private
             )
             
@@ -154,6 +405,7 @@ def upload_file():
                     client_tradeline_doc = frappe.get_doc('Client Tradelines', docname)
                     client_tradeline_doc.completion_date = completion_date
                     client_tradeline_doc.expiry_date = expiry_date
+                    client_tradeline_doc.status = "Active"
                     client_tradeline_doc.save()
                     
                     frappe.db.commit()
@@ -220,6 +472,29 @@ def upload_file():
                     "message": f"Invalid file_name. Only allowed: {', '.join(allowed_file_names)}"
                 }
             
+            # Handle FAQ import if file_name is "faq_import"
+            if provided_file_name == 'faq_import':
+                # Check if user has admin permissions for FAQ import
+                if not is_administrator(current_user):
+                    return {
+                        "success": False,
+                        "message": "Access denied. Admin privileges required for FAQ import."
+                    }
+                
+                # Decode base64 content for FAQ import
+                try:
+                    if ',' in file_content:  # Handle data URL format
+                        file_content = file_content.split(',')[1]
+                    content = base64.b64decode(file_content)
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "message": "Invalid base64 content"
+                    }
+                
+                # Process FAQ import instead of regular file upload
+                return process_faq_import(content, form_data.get('filename', ''))
+            
             # Decode base64 content
             try:
                 if ',' in file_content:  # Handle data URL format
@@ -260,13 +535,19 @@ def upload_file():
             else:
                 custom_filename = base_filename
             
+            # Determine folder for private files based on allowed field name
+            folder = form_data.get('folder', 'Home')
+            if is_private and provided_file_name:
+                # Create or get folder named after the allowed field
+                folder = create_or_get_folder(provided_file_name, "Home")
+            
             # Save file
             file_doc = save_file(
                 fname=custom_filename,
                 content=content,
                 dt=doctype,
                 dn=docname,
-                folder=form_data.get('folder', 'Home'),
+                folder=folder,
                 is_private=is_private
             )
             
@@ -349,6 +630,7 @@ def upload_file():
 def upload_multiple_files():
     """
     Upload multiple files at once
+    Uses same validation and processing logic as upload_file
     """
     try:
         current_user = get_authenticated_user()
@@ -358,8 +640,8 @@ def upload_multiple_files():
         files = frappe.request.files
         form_data = frappe.local.form_dict
 
-        user = frappe.session.user
-        if not user or not frappe.has_permission("File", "create"):
+        # Check if user has permission to upload files
+        if not frappe.has_permission("File", "create"):
             frappe.local.response.http_status_code = 403
             return {
                 "success": False,
@@ -374,54 +656,56 @@ def upload_multiple_files():
 
         uploaded_files = []
         errors = []
+        
+        # Get allowed file names once for all files
+        allowed_file_names = get_allowed_file_names()
+        is_private = int(form_data.get('is_private', 1))  # Default to private
+        
+        # Check if user is trying to upload public files (only admin allowed)
+        if not is_private and not is_administrator(current_user):
+            return {
+                "success": False,
+                "message": "Only administrators can upload public files"
+            }
+            
+        doctype = form_data.get('doctype')
+        docname = form_data.get('docname')
+        folder = form_data.get('folder', 'Home')
 
         for field_name, uploaded_file in files.items():
             if uploaded_file.filename == '':
                 continue
 
             try:
-                # Validate file_name if provided
-                allowed_file_names = ['dl_front', 'dl_back', 'proof_of_address']
-                provided_file_name = form_data.get('file_name')
+                # Validate file_name if provided (use field_name as file_name for multiple files)
+                provided_file_name = form_data.get('file_name') or field_name
                 if provided_file_name and provided_file_name not in allowed_file_names:
                     errors.append({
                         "filename": uploaded_file.filename,
-                        "error": f"Invalid file_name. Only allowed: {', '.join(allowed_file_names)}"
+                        "field_name": field_name,
+                        "error": f"Invalid file_name '{provided_file_name}'. Only allowed: {', '.join(allowed_file_names)}"
                     })
                     continue
                 
-                # Check if user is trying to upload public file (only admin allowed)
-                is_private = int(form_data.get('is_private', 1))  # Default to private
-                if not is_private and not is_administrator(current_user):
-                    errors.append({
-                        "filename": uploaded_file.filename,
-                        "error": "Only administrators can upload public files"
-                    })
-                    continue
-                
-                # Validate file
+                # Validate file using same logic as upload_file
                 validation_result = validate_file(uploaded_file)
                 if not validation_result["valid"]:
                     errors.append({
                         "filename": uploaded_file.filename,
+                        "field_name": field_name,
                         "error": validation_result["message"]
                     })
                     continue
 
-                # Generate custom filename if doctype and docname are provided
-                # Get file extension from original file
+                # Generate custom filename using same logic as upload_file
                 original_ext = os.path.splitext(uploaded_file.filename)[1]
-                # Use file_name from form data or fallback to original filename
-                base_filename = form_data.get('file_name', uploaded_file.filename)
+                base_filename = provided_file_name or uploaded_file.filename
                 base_filename = secure_filename(base_filename)
                 
                 # Ensure the file has the correct extension
                 if not base_filename.endswith(original_ext):
                     name_without_ext = os.path.splitext(base_filename)[0]
                     base_filename = f"{name_without_ext}{original_ext}"
-                
-                doctype = form_data.get('doctype')
-                docname = form_data.get('docname')
                 
                 if doctype and docname:
                     # Create custom filename: doctype_docname_filename
@@ -430,26 +714,83 @@ def upload_multiple_files():
                 else:
                     custom_filename = base_filename
 
+                # Determine folder for private files based on allowed field name
+                file_folder = folder
+                if is_private and provided_file_name:
+                    # Create or get folder named after the allowed field
+                    file_folder = create_or_get_folder(provided_file_name, "Home")
+                    frappe.logger().info(f"Using folder '{file_folder}' for private file '{provided_file_name}'")
+                
                 file_doc = save_file(
                     fname=custom_filename,
                     content=uploaded_file.read(),
                     dt=doctype,
                     dn=docname,
-                    folder=form_data.get('folder', 'Home'),
+                    folder=file_folder,
                     is_private=is_private
                 )
+                
+                # Handle proof_of_enrollment automation for Client Tradeline (same as upload_file)
+                if provided_file_name == 'proof_of_enrollment' and doctype == 'Client Tradelines' and docname:
+                    try:
+                        # Get current datetime
+                        completion_date = datetime.now()
+                        # Calculate expiry date (61 days after completion)
+                        expiry_date = completion_date + timedelta(days=61)
+                        
+                        # Update the Client Tradeline document
+                        client_tradeline_doc = frappe.get_doc('Client Tradelines', docname)
+                        client_tradeline_doc.completion_date = completion_date
+                        client_tradeline_doc.expiry_date = expiry_date
+                        client_tradeline_doc.save()
+                        
+                        frappe.db.commit()
+                        
+                    except Exception as e:
+                        frappe.log_error(f"Error updating Client Tradeline {docname}: {str(e)}", "Proof of Enrollment Automation")
+                
+                # Handle proof_of_refund automation for Client Tradeline (same as upload_file)
+                if provided_file_name == 'proof_of_refund' and doctype == 'Client Tradelines' and docname:
+                    try:
+                        # Get the Client Tradeline document
+                        client_tradeline_doc = frappe.get_doc('Client Tradelines', docname)
+                        
+                        # Set status to Refunded
+                        client_tradeline_doc.status = "Refunded"
+                        client_tradeline_doc.save()
+                        
+                        # Update associated Payment Request status
+                        if client_tradeline_doc.payment_request:
+                            payment_request_doc = frappe.get_doc('Payment Request', client_tradeline_doc.payment_request)
+                            payment_request_doc.status = "Refunded"
+                            payment_request_doc.save()
+                            
+                            frappe.logger().info(f"Payment Request {client_tradeline_doc.payment_request} status updated to Refunded")
+                        
+                        frappe.db.commit()
+                        frappe.logger().info(f"Proof of refund processed for Client Tradeline {docname}: status set to Refunded")
+                        
+                    except Exception as e:
+                        frappe.log_error(f"Error processing proof_of_refund for Client Tradeline {docname}: {str(e)}", "Proof of Refund Automation")
+                
+                # Handle client_signature automation (same as upload_file)
+                if provided_file_name == 'client_signature':
+                    frappe.db.sql("update `tabCustomer` set is_questionnaire_filled = %s where email_id = %s", (1, current_user))
 
                 uploaded_files.append({
                     "name": file_doc.name,
                     "file_name": file_doc.file_name,
                     "file_url": file_doc.file_url,
                     "file_size": file_doc.file_size,
-                    "is_private": file_doc.is_private
+                    "is_private": file_doc.is_private,
+                    "content_hash": file_doc.content_hash,
+                    "field_name": field_name
                 })
 
             except Exception as e:
                 errors.append({
                     "filename": getattr(uploaded_file, 'filename', 'unknown'),
+                    "field_name": field_name,
                     "error": str(e)
                 })
 

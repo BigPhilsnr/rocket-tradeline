@@ -2,7 +2,7 @@
  "actions": [],
  "allow_rename": 1,
  "autoname": "naming_series:",
- "creation": "2025-08-16 12:00:00.000000",
+ "creation": "2025-08-16 12:00:00",
  "default_view": "List",
  "doctype": "DocType",
  "editable_grid": 1,
@@ -19,6 +19,7 @@
   "section_break_8",
   "payment_mode",
   "payment_status",
+  "payment_address",
   "column_break_11",
   "subtotal",
   "discount_amount",
@@ -107,27 +108,27 @@
    "fieldname": "subtotal",
    "fieldtype": "Currency",
    "label": "Subtotal",
-   "precision": 2,
+   "precision": "2",
    "read_only": 1
   },
   {
    "fieldname": "discount_amount",
    "fieldtype": "Currency",
    "label": "Discount Amount",
-   "precision": 2
+   "precision": "2"
   },
   {
    "fieldname": "tax_amount",
    "fieldtype": "Currency",
    "label": "Tax Amount",
-   "precision": 2
+   "precision": "2"
   },
   {
    "fieldname": "total_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Total Amount",
-   "precision": 2,
+   "precision": "2",
    "read_only": 1
   },
   {
@@ -155,11 +156,17 @@
    "fieldtype": "Datetime",
    "label": "Modified At",
    "read_only": 1
+  },
+  {
+   "fieldname": "payment_address",
+   "fieldtype": "Link",
+   "label": "Payment Address",
+   "options": "Address"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-08-16 12:00:00.000000",
+ "modified": "2025-09-14 14:02:27.553773",
  "modified_by": "Administrator",
  "module": "Rockettradeline",
  "name": "Tradeline Cart",

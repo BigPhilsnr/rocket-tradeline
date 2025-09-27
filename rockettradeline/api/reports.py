@@ -123,16 +123,29 @@ def get_admin_dashboard():
         # Financial statistics
         payment_stats = frappe.db.sql("""
             SELECT 
-                COALESCE(SUM(total_amount), 0) as total_revenue,
-                COALESCE(SUM(CASE WHEN status IN ('Pending', 'Draft') THEN total_amount ELSE 0 END), 0) as pending_payments,
-                COALESCE(SUM(CASE WHEN status = 'Completed' THEN total_amount ELSE 0 END), 0) as approved_payments,
-                COALESCE(SUM(CASE WHEN status IN ('Expired', 'Cancelled', 'Failed') THEN total_amount ELSE 0 END), 0) as rejected_payments,
+           
+                COALESCE(SUM(CASE WHEN approval_status IN ('Approved') THEN total_amount ELSE 0 END), 0) as total_revenue,
+                COALESCE(COUNT(CASE WHEN approval_status IN ('Pending Approval') THEN 1 END), 0) as pending_payments,
+                COALESCE(COUNT(CASE WHEN approval_status = 'Approved' THEN 1 END), 0) as approved_payments,
+                COALESCE(COUNT(CASE WHEN approval_status IN ('Rejected') THEN 1 END), 0) as rejected_payments,
                 COALESCE(AVG(total_amount), 0) as average_transaction_value,
                 COUNT(*) as total_transactions
             FROM `tabPayment Request`
         """, as_dict=True)
         
         payment_data = payment_stats[0] if payment_stats else {}
+        
+        # Commission statistics
+        commission_stats = frappe.db.sql("""
+            SELECT 
+                COALESCE(SUM(CASE WHEN ct.commission_paid = 1 THEN t.commission ELSE 0 END), 0) as commission_paid,
+                COALESCE(SUM(CASE WHEN IFNULL(ct.commission_paid, 0) = 0 THEN t.commission ELSE 0 END), 0) as commission_owed
+            FROM `tabClient Tradelines` ct
+            LEFT JOIN `tabTradeline` t ON t.name = ct.tradeline
+            WHERE t.commission IS NOT NULL AND t.commission > 0
+        """, as_dict=True)
+        
+        commission_data = commission_stats[0] if commission_stats else {}
         
         # Monthly revenue
         monthly_revenue = frappe.db.sql("""
@@ -243,7 +256,9 @@ def get_admin_dashboard():
                 "approved_payments": round(payment_data.get("approved_payments", 0), 2),
                 "rejected_payments": round(payment_data.get("rejected_payments", 0), 2),
                 "average_transaction_value": round(payment_data.get("average_transaction_value", 0), 2),
-                "commission_earned": round(payment_data.get("total_revenue", 0) * 0.15, 2)  # 15% commission
+                "commission_earned": round(payment_data.get("total_revenue", 0) * 0.15, 2),  # 15% commission
+                "commission_paid": round(commission_data.get("commission_paid", 0), 2),
+                "commission_owed": round(commission_data.get("commission_owed", 0), 2)
             },
             "client_tradelines": {
                 "total_client_tradelines": client_data.get("total_client_tradelines", 0),
@@ -308,7 +323,9 @@ def get_admin_dashboard():
                 "approved_payments": 0.0,
                 "rejected_payments": 0.0,
                 "average_transaction_value": 0.0,
-                "commission_earned": 0.0
+                "commission_earned": 0.0,
+                "commission_paid": 0.0,
+                "commission_owed": 0.0
             },
             "client_tradelines": {
                 "total_client_tradelines": 0,
@@ -551,7 +568,7 @@ def get_buyer_dashboard(current_user):
     try:
         # Get buyer's customer record
         customer = frappe.get_all("Customer", 
-            filters={"user": current_user}, 
+            filters={"email_id": current_user}, 
             fields=["name", "email_id"], 
             limit=1
         )
@@ -562,42 +579,75 @@ def get_buyer_dashboard(current_user):
         customer_name = customer[0]["name"]
         customer_email = customer[0]["email_id"]
         
-        # Buyer's purchase overview
+        # Get current month start for recent additions
+        current_month_start = get_first_day(now_datetime())
+        
+        # Buyer's purchase overview with updated logic
         purchase_stats = frappe.db.sql("""
             SELECT 
                 COUNT(*) as total_purchases,
                 SUM(CASE WHEN status = 'Active' THEN 1 ELSE 0 END) as active_tradelines,
                 SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed_tradelines,
-                SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending_tradelines,
+                SUM(CASE WHEN status = 'Pending AU' THEN 1 ELSE 0 END) as pending_tradelines,
+                SUM(CASE WHEN status = 'Refunded' THEN 1 ELSE 0 END) as refunded_tradelines,
+                SUM(CASE WHEN status = 'Expired' THEN 1 ELSE 0 END) as expired_tradelines,
                 COALESCE(SUM(total_amount), 0) as total_spent,
-                COALESCE(AVG(total_amount), 0) as average_purchase_value
+                COALESCE(AVG(total_amount), 0) as average_purchase_value,
+                SUM(CASE WHEN creation >= %s AND status = 'Active' THEN 1 ELSE 0 END) as recent_additions
+            FROM `tabClient Tradelines`
+            WHERE customer = %s
+        """, [current_month_start, customer_name], as_dict=True)
+        
+        purchase_data = purchase_stats[0] if purchase_stats else {}
+        
+        # Financial summary with updated logic
+        financial_stats = frappe.db.sql("""
+            SELECT 
+                -- Total invested: sum of Active, Pending AU, and Expired Client Tradelines
+                COALESCE(SUM(CASE WHEN ct.status IN ('Active', 'Pending AU', 'Expired') THEN ct.total_amount ELSE 0 END), 0) as total_invested,
+                -- Pending payments: total amount of Active carts
+                COALESCE((SELECT SUM(total_amount) FROM `tabTradeline Cart` WHERE user_id = %s AND status = 'Active'), 0) as pending_payments,
+                -- Completed payments: same as total invested
+                COALESCE(SUM(CASE WHEN ct.status IN ('Active', 'Pending AU', 'Expired') THEN ct.total_amount ELSE 0 END), 0) as completed_payments,
+                -- Refunds: total of Refunded Client Tradelines
+                COALESCE(SUM(CASE WHEN ct.status = 'Refunded' THEN ct.total_amount ELSE 0 END), 0) as refunds_received
+            FROM `tabClient Tradelines` ct
+            WHERE ct.customer = %s
+        """, [customer_email, customer_name], as_dict=True)
+        
+        financial_data = financial_stats[0] if financial_stats else {}
+        
+        # Next removal date: earliest expiry date on Client Tradelines
+        next_removal_stats = frappe.db.sql("""
+            SELECT 
+                MIN(CASE WHEN expiry_date > CURDATE() AND status = 'Active' THEN expiry_date ELSE NULL END) as next_removal_date
             FROM `tabClient Tradelines`
             WHERE customer = %s
         """, [customer_name], as_dict=True)
         
-        purchase_data = purchase_stats[0] if purchase_stats else {}
+        next_removal_data = next_removal_stats[0] if next_removal_stats else {}
+        next_removal = next_removal_data.get("next_removal_date")
         
-        # Financial summary
-        financial_stats = frappe.db.sql("""
-            SELECT 
-                COALESCE(SUM(pr.total_amount), 0) as total_invested,
-                COALESCE(SUM(CASE WHEN pr.status IN ('Pending', 'Draft') THEN pr.total_amount ELSE 0 END), 0) as pending_payments,
-                COALESCE(SUM(CASE WHEN pr.status = 'Completed' THEN pr.total_amount ELSE 0 END), 0) as completed_payments
-            FROM `tabClient Tradelines` ct
-            LEFT JOIN `tabPayment Request` pr ON pr.name = ct.payment_request
-            WHERE ct.customer = %s
-        """, [customer_name], as_dict=True)
+        # Calculate days until next removal
+        days_until_next = 0
+        if next_removal:
+            try:
+                if isinstance(next_removal, str):
+                    next_removal_date = datetime.strptime(next_removal, '%Y-%m-%d').date()
+                else:
+                    next_removal_date = next_removal
+                days_until_next = max(0, (next_removal_date - datetime.now().date()).days)
+            except:
+                days_until_next = 0
         
-        financial_data = financial_stats[0] if financial_stats else {}
-        
-        # Recent tradelines
+        # Recent tradelines (last 5)
         recent_tradelines = frappe.db.sql("""
             SELECT 
                 b.bank_name as bank,
                 t.credit_limit,
                 t.age_year,
                 ct.status,
-                DATE(ct.created_date) as date_added,
+                DATE(ct.creation) as date_added,
                 DATE(ct.expiry_date) as removal_date
             FROM `tabClient Tradelines` ct
             LEFT JOIN `tabTradeline` t ON t.name = ct.tradeline
@@ -607,24 +657,15 @@ def get_buyer_dashboard(current_user):
             LIMIT 5
         """, [customer_name], as_dict=True)
         
-        # Timeline information
+        # Timeline information with updated logic
         timeline_stats = frappe.db.sql("""
             SELECT 
-                SUM(CASE WHEN expiry_date <= %s AND status = 'Active' THEN 1 ELSE 0 END) as upcoming_removals,
-                SUM(CASE WHEN created_date >= %s THEN 1 ELSE 0 END) as recent_additions,
-                MIN(CASE WHEN expiry_date > %s AND status = 'Active' THEN expiry_date ELSE NULL END) as next_removal_date
+                SUM(CASE WHEN expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND status = 'Active' THEN 1 ELSE 0 END) as upcoming_removals
             FROM `tabClient Tradelines`
             WHERE customer = %s
-        """, [customer_name,
-              (now_datetime() + timedelta(days=30)).strftime('%Y-%m-%d'),
-              (now_datetime() - timedelta(days=30)).strftime('%Y-%m-%d'),
-              now_datetime().strftime('%Y-%m-%d')], as_dict=True)
+        """, [customer_name], as_dict=True)
         
         timeline_data = timeline_stats[0] if timeline_stats else {}
-        next_removal = timeline_data.get("next_removal_date")
-        days_until_next = 0
-        if next_removal:
-            days_until_next = (datetime.strptime(str(next_removal), '%Y-%m-%d').date() - datetime.now().date()).days
         
         return {
             "overview": {
@@ -632,6 +673,8 @@ def get_buyer_dashboard(current_user):
                 "active_tradelines": purchase_data.get("active_tradelines", 0),
                 "completed_tradelines": purchase_data.get("completed_tradelines", 0),
                 "pending_tradelines": purchase_data.get("pending_tradelines", 0),
+                "refunded_tradelines": purchase_data.get("refunded_tradelines", 0),
+                "expired_tradelines": purchase_data.get("expired_tradelines", 0),
                 "total_spent": round(purchase_data.get("total_spent", 0), 2),
                 "average_purchase_value": round(purchase_data.get("average_purchase_value", 0), 2)
             },
@@ -639,7 +682,7 @@ def get_buyer_dashboard(current_user):
                 "total_invested": round(financial_data.get("total_invested", 0), 2),
                 "pending_payments": round(financial_data.get("pending_payments", 0), 2),
                 "completed_payments": round(financial_data.get("completed_payments", 0), 2),
-                "refunds_received": 0  # Would need additional logic
+                "refunds_received": round(financial_data.get("refunds_received", 0), 2)
             },
             "recent_tradelines": [
                 {
@@ -653,9 +696,9 @@ def get_buyer_dashboard(current_user):
             ],
             "timeline": {
                 "upcoming_removals": timeline_data.get("upcoming_removals", 0),
-                "recent_additions": timeline_data.get("recent_additions", 0),
-                "next_removal_date": str(next_removal) if next_removal else None,
-                "days_until_next_removal": max(0, days_until_next)
+                "recent_additions": purchase_data.get("recent_additions", 0),  # Client tradelines added in current month that are active
+                "next_removal_date": str(next_removal) if next_removal else None,  # Earliest expiry date on Client Tradelines
+                "days_until_next_removal": days_until_next
             }
         }
         
@@ -755,7 +798,7 @@ def get_monthly_trends():
             new_users.append(user_count)
             
             # Purchased tradelines count
-            tradeline_count = frappe.db.count("Client Tradelines", filters={
+            tradeline_count = frappe.db.count("Client Tradelines", filters={"status": "Active",
                 "creation": ["between", [month_start, month_end]]
             })
             purchased_tradelines.append(tradeline_count)

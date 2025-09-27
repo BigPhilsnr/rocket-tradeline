@@ -25,9 +25,21 @@
   "additional_info_section",
   "notes",
   "expiry_date",
+  "commission_paid",
   "column_break_additional",
   "assigned_to",
-  "completion_date"
+  "completion_date",
+  "swapped",
+  "swapped_on",
+  "refund_details_section",
+  "refund_username",
+  "refund_password",
+  "column_break_refund",
+  "refund_security_question",
+  "refund_security_answer",
+  "refund_pin",
+  "refund_reason",
+  "refund_link"
  ],
  "fields": [
   {
@@ -67,7 +79,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Active\nInactive\nCompleted\nExpired\nCancelled\nRefunded\nRefund Requested",
+   "options": "Active\nPending AU\nInactive\nCompleted\nExpired\nCancelled\nRefunded\nRefund Requested",
    "reqd": 1
   },
   {
@@ -163,11 +175,72 @@
    "fieldname": "completion_date",
    "fieldtype": "Date",
    "label": "Completion Date"
+  },
+  {
+   "default": "0",
+   "fieldname": "commission_paid",
+   "fieldtype": "Check",
+   "label": "Commission Paid"
+  },
+  {
+   "fieldname": "refund_details_section",
+   "fieldtype": "Section Break",
+   "label": "Refund Details"
+  },
+  {
+   "fieldname": "refund_username",
+   "fieldtype": "Data",
+   "label": "Refund Username"
+  },
+  {
+   "fieldname": "refund_password",
+   "fieldtype": "Password",
+   "label": "Refund Password"
+  },
+  {
+   "fieldname": "column_break_refund",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "refund_security_question",
+   "fieldtype": "Data",
+   "label": "Refund Security Question"
+  },
+  {
+   "fieldname": "refund_security_answer",
+   "fieldtype": "Data",
+   "label": "Refund Security Answer"
+  },
+  {
+   "fieldname": "refund_pin",
+   "fieldtype": "Data",
+   "label": "Refund PIN"
+  },
+  {
+   "fieldname": "refund_reason",
+   "fieldtype": "Text",
+   "label": "Refund Reason"
+  },
+  {
+   "fieldname": "refund_link",
+   "fieldtype": "Data",
+   "label": "Refund Link"
+  },
+  {
+   "default": "0",
+   "fieldname": "swapped",
+   "fieldtype": "Check",
+   "label": "Swapped"
+  },
+  {
+   "fieldname": "swapped_on",
+   "fieldtype": "Datetime",
+   "label": "Swapped On"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-09-10 17:10:48.731426",
+ "modified": "2025-09-22 15:22:11.379398",
  "modified_by": "Administrator",
  "module": "Rockettradeline",
  "name": "Client Tradelines",

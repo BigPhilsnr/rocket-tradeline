@@ -25,12 +25,88 @@ class PaymentRequest(Document):
         if not self.expiry_date:
             self.expiry_date = add_days(now_datetime(), 1)
         
+        
+        
         # Calculate total amount if not set
         if not self.total_amount:
+            # Get fees from payment configuration
+            if self.payment_method and self.amount:
+                calculated_fees = self.calculate_fees_from_config()
+                self.fees = calculated_fees.get("total_fee", 0)
+            
             self.total_amount = flt(self.amount) + flt(self.fees)
         
         # Set customer information from cart or email
         self.set_customer_info()
+        
+        # Validate cart_id is unique
+        self.validate_unique_cart_id()
+    
+    def validate_unique_cart_id(self):
+        """Validate that cart_id is unique (no other active payment request exists for this cart)"""
+        if not self.cart_id:
+            return
+        
+        # Check for existing active payment requests for this cart
+        existing_payments = frappe.get_all(
+            "Payment Request",
+            filters={
+                "cart_id": self.cart_id,
+                "status": ["not in", ["Cancelled", "Failed", "Expired", "Refunded"]],
+                "name": ["!=", self.name] if self.name else ["!=", ""]
+            },
+            fields=["name", "status", "created_at"],
+            limit=1
+        )
+        
+        if existing_payments:
+            existing_payment = existing_payments[0]
+            frappe.throw(
+                f"An active payment request already exists for cart {self.cart_id}. "
+                f"Payment Request: {existing_payment.name} (Status: {existing_payment.status}). "
+                f"Please complete or cancel the existing payment before creating a new one."
+            )
+    
+    def calculate_fees_from_config(self):
+        """Calculate fees based on payment configuration"""
+        try:
+            if not self.payment_method or not self.amount:
+                return {"total_fee": 0}
+            
+            # Get payment configuration
+            payment_config = frappe.get_doc("Payment Configuration", self.payment_method)
+            
+            # Calculate fees using the configuration
+            fees_result = payment_config.calculate_fees(self.amount)
+            
+            # Store calculation details in payment_data
+            calculation_data = {
+                "fee_calculation": fees_result,
+                "calculated_at": now_datetime().isoformat()
+            }
+            
+            if self.payment_data:
+                try:
+                    existing_data = json.loads(self.payment_data)
+                    existing_data.update(calculation_data)
+                    self.payment_data = json.dumps(existing_data, indent=2)
+                except json.JSONDecodeError:
+                    self.payment_data = json.dumps(calculation_data, indent=2)
+            else:
+                self.payment_data = json.dumps(calculation_data, indent=2)
+            
+            return fees_result
+            
+        except Exception as e:
+            frappe.log_error(f"Error calculating fees for payment request: {str(e)}")
+            return {"total_fee": 0}
+    
+    def recalculate_fees(self):
+        """Recalculate fees when payment method or amount changes"""
+        if self.payment_method and self.amount:
+            fees_result = self.calculate_fees_from_config()
+            self.fees = fees_result.get("total_fee", 0)
+            self.total_amount = flt(self.amount) + flt(self.fees)
     
     def set_customer_info(self):
         """Set customer and customer name from cart or email"""
@@ -98,6 +174,14 @@ class PaymentRequest(Document):
         self.validate_amounts()
         self.validate_cart_access()
         self.validate_payment_method()
+        
+        # Validate cart_id uniqueness if changed
+        if self.has_value_changed("cart_id"):
+            self.validate_unique_cart_id()
+        
+        # Recalculate fees if payment method or amount changed
+        if self.has_value_changed("payment_method") or self.has_value_changed("amount"):
+            self.recalculate_fees()
     
     def validate_amounts(self):
         """Validate payment amounts"""
@@ -132,14 +216,18 @@ class PaymentRequest(Document):
         """Handle status changes"""
         if self.has_value_changed("status"):
             self.handle_status_change()
+       
     
     def handle_status_change(self):
         """Handle payment status changes"""
-        if self.status == "Completed" and not self.completed_at:
+        if (self.status == "Completed" or self.approval_status == "Approved") and not self.completed_at:
             self.completed_at = now_datetime()
             # Create Client Tradelines when payment is completed
-            self.create_client_tradelines()
-        
+            if frappe.db.exists("Client Tradelines", {"payment_request": self.name}):
+                frappe.logger().info(f"Client Tradelines already exist for payment {self.name}, skipping creation")
+            else:
+                self.create_client_tradelines()
+    
         elif self.status == "Verified" and not self.verified_at:
             self.verified_at = now_datetime()
             if not self.verified_by:
@@ -450,20 +538,3 @@ def handle_expired_payments():
             frappe.log_error(f"Failed to expire payment request {payment.name}: {str(e)}")
 
 
-# Hook function for document events
-def on_payment_request_update(doc, method):
-    """Hook function called when Payment Request is updated"""
-    try:
-        # Check if status changed to Completed
-        if doc.has_value_changed("status") and doc.status == "Completed":
-            # Import here to avoid circular imports
-            from rockettradeline.rockettradeline.doctype.client_tradelines.client_tradelines import create_client_tradelines_from_payment
-            
-            # Create Client Tradelines records
-            # created_records = create_client_tradelines_from_payment(doc)
-            
-            # frappe.logger().info(f"Hook: Successfully created {len(created_records)} Client Tradelines records for payment {doc.name}")
-            
-    except Exception as e:
-        frappe.log_error(f"Hook error for payment {doc.name}: {str(e)}", "Payment Request Hook Error")
-        # Don't raise the error to prevent payment update from failing

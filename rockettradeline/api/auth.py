@@ -437,6 +437,85 @@ def get_email_footer(recipient_email):
     site_url = frappe.utils.get_url()
     site_logo = f"{site_url}/assets/rockettradeline/logo.png"
     
+    # Get social media links from Site Content doctype
+    social_media_links = {}
+    try:
+        # Fetch social media links from Site Content where section=social
+        social_records = frappe.get_all(
+            "Site Content",
+            filters={"section": "social"},
+            fields=["name", "value"]
+        )
+        
+        # Convert to dictionary for easy access
+        for record in social_records:
+            social_media_links[record.name] = record.value
+    except Exception as e:
+        frappe.log_error(f"Error fetching social media links: {str(e)}")
+        # Default to empty links if there's an error
+        social_media_links = {}
+    
+    # Helper function to get social media icon
+    def get_social_icon(platform, url):
+        if not url or url.strip() == "":
+            return ""
+        
+        # Icon URLs and colors for different platforms
+        platform_config = {
+            "facebook": {
+                "icon_url": "https://cdn-icons-png.flaticon.com/512/124/124010.png",
+                "alt": "Facebook"
+            },
+            "twitter": {
+                "icon_url": "https://cdn-icons-png.flaticon.com/512/124/124021.png", 
+                "alt": "Twitter"
+            },
+            "instagram": {
+                "icon_url": "https://cdn-icons-png.flaticon.com/512/124/124024.png",
+                "alt": "Instagram"
+            },
+            "pinterest": {
+                "icon_url": "https://cdn-icons-png.flaticon.com/512/124/124033.png",
+                "alt": "Pinterest"
+            },
+            "tiktok": {
+                "icon_url": "https://cdn-icons-png.flaticon.com/512/3046/3046120.png",
+                "alt": "TikTok"
+            }
+        }
+        
+        platform_lower = platform.lower().replace("social_", "")
+        config = platform_config.get(platform_lower, {
+            "icon_url": "https://cdn-icons-png.flaticon.com/512/733/733579.png",
+            "alt": "Social Media"
+        })
+        
+        return f'''
+        <a href="{url}" style="display: inline-block; margin: 0 8px; text-decoration: none;" target="_blank">
+            <img src="{config["icon_url"]}" alt="{config["alt"]}" style="width: 32px; height: 32px; border-radius: 6px; transition: opacity 0.3s; opacity: 0.8;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.8'" />
+        </a>'''
+    
+    # Build social media icons HTML
+    social_icons_html = ""
+    social_platforms = ["social_facebook", "social_twitter", "social_instagram", "social_pinterest", "social_tiktok"]
+    
+    for platform in social_platforms:
+        if platform in social_media_links:
+            social_icons_html += get_social_icon(platform, social_media_links[platform])
+    
+    # If no social media links found, show placeholder
+    if not social_icons_html.strip():
+        social_icons_html = '''
+        <a href="#" style="display: inline-block; margin: 0 8px; text-decoration: none;">
+            <img src="https://cdn-icons-png.flaticon.com/512/124/124010.png" alt="Facebook" style="width: 32px; height: 32px; border-radius: 6px; opacity: 0.3;" />
+        </a>
+        <a href="#" style="display: inline-block; margin: 0 8px; text-decoration: none;">
+            <img src="https://cdn-icons-png.flaticon.com/512/124/124021.png" alt="Twitter" style="width: 32px; height: 32px; border-radius: 6px; opacity: 0.3;" />
+        </a>
+        <a href="#" style="display: inline-block; margin: 0 8px; text-decoration: none;">
+            <img src="https://cdn-icons-png.flaticon.com/512/124/124024.png" alt="Instagram" style="width: 32px; height: 32px; border-radius: 6px; opacity: 0.3;" />
+        </a>'''
+    
     return f"""
             </div>
             
@@ -449,15 +528,7 @@ def get_email_footer(recipient_email):
                 
                 <!-- Social Media Icons -->
                 <div style="margin-bottom: 20px;">
-                    <a href="#" style="display: inline-block; margin: 0 10px; text-decoration: none;">
-                        <div style="width: 32px; height: 32px; background-color: #9ca3af; border-radius: 4px; display: inline-block;"></div>
-                    </a>
-                    <a href="#" style="display: inline-block; margin: 0 10px; text-decoration: none;">
-                        <div style="width: 32px; height: 32px; background-color: #9ca3af; border-radius: 4px; display: inline-block;"></div>
-                    </a>
-                    <a href="#" style="display: inline-block; margin: 0 10px; text-decoration: none;">
-                        <div style="width: 32px; height: 32px; background-color: #9ca3af; border-radius: 4px; display: inline-block;"></div>
-                    </a>
+                    {social_icons_html}
                 </div>
                 
                 <!-- Footer Text -->
@@ -467,7 +538,29 @@ def get_email_footer(recipient_email):
                         <a href="#" style="color: #17B26A; text-decoration: none;">unsubscribe</a> or 
                         <a href="#" style="color: #17B26A; text-decoration: none;">manage your email preferences</a>.
                     </p>
-                    <p style="margin: 0;">© 2025 Rocket Tradelines. All rights reserved</p>
+                    
+                    <!-- Contact Information -->
+                    <div style="background-color: #f3f4f6; padding: 15px; border-radius: 6px; margin: 15px 0; text-align: center;">
+                        <p style="margin: 0 0 10px 0; color: #374151; font-weight: 600; font-size: 14px;">📞 Need Help? Contact Us:</p>
+                        <p style="margin: 5px 0; color: #6b7280; font-size: 13px;">
+                            <strong>Phone:</strong> <a href="tel:+14696777948" style="color: #17B26A; text-decoration: none;">(469) 677-7948</a>
+                        </p>
+                        <p style="margin: 5px 0; color: #6b7280; font-size: 13px;">
+                            <strong>Email:</strong> <a href="mailto:info@rockettradeline.com" style="color: #17B26A; text-decoration: none;">info@rockettradeline.com</a>
+                        </p>
+                        <p style="margin: 5px 0; color: #6b7280; font-size: 13px;">
+                            <a href="https://calendar.app.google/WJmAbuqdfrFUJ6Z4A" style="color: #17B26A; text-decoration: none; font-weight: 600;">📅 Schedule a Call</a>
+                        </p>
+                    </div>
+                    
+                    <p style="margin: 0 0 15px 0;">© 2025 Rocket Tradelines. All rights reserved</p>
+                    
+                    <!-- Confidentiality Disclaimer -->
+                    <div style="background-color: #fef3c7; border: 1px solid #f59e0b; padding: 12px; border-radius: 6px; margin: 15px 0;">
+                        <p style="margin: 0; color: #92400e; font-size: 11px; line-height: 1.4; text-align: left;">
+                            <strong>Confidentiality Disclaimer:</strong> The information contained in this e-mail may be privileged and/or confidential, and protected from disclosure, and no waiver of any attorney-client, work product, or other privilege is intended. If you are the intended recipient, further disclosures are prohibited without proper authorization. If you are not the intended recipient (or have received this e-mail in error) please notify the sender immediately and destroy this e-mail. Any unauthorized copying, disclosure or distribution of the material in this e-mail is strictly forbidden and possibly a violation of federal or state law and regulations. The sender and Rocket Tradeline, and its affiliated entities, hereby expressly reserve all privileges and confidentiality that might otherwise be waived as a result of an erroneous or misdirected e-mail transmission. No employee or agent is authorized to conclude any binding agreement on behalf of Rocket Tradeline, or any affiliated entity, by e-mail without express written confirmation by the Owner or other duly authorized representative of Rocket Tradeline.
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -498,17 +591,12 @@ def generate_verification_token(email):
         return None
 
 def send_verification_email(user_email, full_name, verification_token):
-    """Send email verification email using Frappe's email system"""
+    """Send email verification email using Email Template Custom system"""
     try:
         # Create verification link
         site_url = frappe.utils.get_url()
         verification_link = f"{site_url}/api/method/rockettradeline.api.auth.verify_email?token={verification_token}"
         
-        # Check if Email Verification template exists
-        if not frappe.db.exists('Email Template', 'Email Verification'):
-            frappe.log_error(f"Email Template 'Email Verification' not found", "Email Template Missing")
-            return False
-            
         # Check if there's a default outgoing email account
         email_accounts = frappe.get_all('Email Account', 
             filters={'enable_outgoing': 1, 'default_outgoing': 1},
@@ -526,54 +614,65 @@ def send_verification_email(user_email, full_name, verification_token):
         if not account_doc.password:
             # Log the configuration issue but still queue the email
             frappe.log_error(f"Email account '{email_account.name}' has no password. Email will be queued but may fail to send to {user_email}", "Email Config Warning")
-            
-        # Send email using Frappe's email queue (queue regardless of password config)
+        
+        # Try to use Email Template Custom first
         try:
-            # Create the email content with Rocket Tradeline branding using header/footer functions
-            email_header = get_email_header()
-            email_footer = get_email_footer(user_email)
-            
-            email_content = f"""{email_header}
-                <div style="margin-bottom: 25px;">
-                    <p style="color: #374151; font-size: 16px; margin: 0 0 10px 0;">Hi {full_name},</p>
-                    <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 0;">
-                        You just signed up for an account at Rocket Tradelines. To complete your registration and buy tradelines, click the button below.
-                    </p>
-                </div>
+            # Check if Email Template Custom exists and template is available
+            if frappe.db.exists('DocType', 'Email Template Custom') and frappe.db.exists('Email Template Custom', 'Email Verification'):
+                # Use the Email Template Custom system
+                from rockettradeline.utils.email_templates import send_email_from_template
                 
-                <!-- Verify Button -->
-                <div style="text-align: center; margin: 30px 0;">
-                    <a href="{verification_link}" style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; 
-                              border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">
-                        Verify email
-                    </a>
-                </div>
+                # Prepare context for template
+                context = {
+                    'full_name': full_name,
+                    'site_name': 'Rocket Tradelines',
+                    'verification_link': verification_link,
+                    'recipient_email': user_email
+                }
                 
-                <div style="margin-top: 25px;">
-                    <p style="color: #6b7280; margin: 0; font-size: 16px;">
-                        Thanks,<br>
-                        The team
-                    </p>
-                </div>
-            {email_footer}"""
+                # Send email using template
+                result = send_email_from_template('Email Verification', user_email, context)
+                
+                if result.get('success'):
+                    frappe.logger().info(f"Verification email sent using template to {user_email}")
+                    return True
+                else:
+                    frappe.log_error(f"Template email failed for {user_email}: {result.get('error')}", "Template Email Error")
+                    # Fall back to hardcoded email below
+            else:
+                frappe.logger().info("Email Template Custom not available, using fallback method")
+        
+        except Exception as template_error:
+            frappe.log_error(f"Template email system failed for {user_email}: {str(template_error)}", "Template Email System Error")
+            # Fall back to hardcoded email below
+        
+        # Fallback: Send email using Email Template Custom system
+        try:
+            from rockettradeline.rockettradeline.doctype.email_template_custom.email_template_custom import send_email_template
             
-            frappe.sendmail(
+            # Prepare template parameters
+            template_params = {
+                "full_name": full_name,
+                "site_name": frappe.local.site,
+                "verification_link": verification_link
+            }
+            
+            # Send email using template
+            send_email_template(
+                template_name="Email Verification",
                 recipients=[user_email],
-                subject=f"Verify Your Email Address - {frappe.local.site}",
-                message=email_content,
-                delayed=False,
-                retry=3
+                parameters=template_params
             )
             
-            # Return True if email was successfully queued
+            frappe.logger().info(f"Verification email sent using Email Template Custom to {user_email}")
             return True
             
         except Exception as e:
-            frappe.log_error(f"Email queue failed for {user_email}", "Email Queue Error") 
+            frappe.log_error(f"Email Template Custom failed for {user_email}: {str(e)}", "Email Template Custom Error") 
             return False
         
     except Exception as e:
-        frappe.log_error(f"Email send failed for {user_email}", "Email Sending Error")
+        frappe.log_error(f"Email send failed for {user_email}: {str(e)}", "Email Sending Error")
         return False
 
 def is_email_verified(email):
@@ -1221,24 +1320,40 @@ def get_current_user():
             for field in system_fields:
                 customer.pop(field, None)
         
-        # Get user files/attachments
-        user_files = frappe.get_all("File",
+        # Get user files/attachments - only latest from each folder
+        all_user_files = frappe.get_all("File",
             filters={
-                "owner": user.name
+                # "owner": user.name,
+                "attached_to_doctype": "Customer",
+                "attached_to_name": customer_list[0].name if customer_list else "1234"
+                
             },
             fields=[
-                "name", "file_name", "file_url", "file_size", "file_type",
-                "is_private", "folder", "attached_to_doctype", "attached_to_name",
-                "creation", "modified", "content_hash"
+                "name", "file_url", "folder", "creation"
             ],
             order_by="creation desc"
         )
+        
+        # Group files by folder and get only the latest from each folder
+        user_files = []
+        seen_folders = set()
+        
+        for file_doc in all_user_files:
+            folder_name = file_doc.get('folder', 'Home')
+            if folder_name not in seen_folders:
+                seen_folders.add(folder_name)
+                # Remove creation field from the final result
+                user_files.append({
+                    "name": file_doc.get("name"),
+                    "file_url": file_doc.get("file_url"),
+                    "folder": file_doc.get("folder")
+                })
         
         # Get role profile information
         role_profile_name = getattr(user, 'role_profile_name', None)
         role_profile_data = None
         
-        if role_profile_name:
+        if False:
             try:
                 role_profile_doc = frappe.get_doc("Role Profile", role_profile_name)
                 role_profile_data = {
@@ -1251,6 +1366,12 @@ def get_current_user():
             except frappe.DoesNotExistError:
                 role_profile_data = None
 
+        
+        addresses = frappe.db.count("Address", 
+            filters={"email_id": user.name},
+            
+        )
+        
         response_data = {
             "success": True,
             "user": {
@@ -1260,18 +1381,23 @@ def get_current_user():
                 "user_image": user.user_image,
                 "birth_date": user.birth_date,
                 "phone": user.phone,
-                "roles": [role.role for role in user.roles],
+                # "roles": [role.role for role in user.roles],
                 "role_profile_name": role_profile_name,
                 # "role_profile": role_profile_data,
                 "user_type": user.user_type,
-                "enabled": user.enabled
+                "enabled": user.enabled,
+                
+                
             },
             # "files": user_files
         }
         
         if customer:
             response_data["customer"] = customer
-        
+
+        response_data["user_files"] = user_files
+        response_data["address_count"] = addresses or 0
+
         return response_data
     except Exception as e:
         frappe.log_error(f"Get current user error: {str(e)}")
@@ -1285,7 +1411,7 @@ def get_current_user():
 @jwt_required()
 def update_profile(full_name=None, phone=None, user_image=None, gender=None, date_of_birth=None, 
                   social_security_number=None, address_line1=None, address_line2=None, city=None, 
-                  state=None, zipcode=None, country=None, address_type="Personal"):
+                  state=None, zipcode=None, country=None, address_type="Personal", is_default=0,user_id=None):
     """
     Update user profile, customer record, and address
     Uses standard Frappe authentication (session-based)
@@ -1294,6 +1420,11 @@ def update_profile(full_name=None, phone=None, user_image=None, gender=None, dat
         # Frappe automatically handles authentication with @frappe.whitelist()
         # frappe.session.user will be set to the authenticated user
         user_name = get_authenticated_user()
+        if user_id:
+            if is_administrator(frappe.session.user):
+                user_name = user_id
+            else:
+                frappe.throw("You don't have permission to update this user", frappe.PermissionError)
         if not user_name:
             frappe.local.response.http_status_code = 401
             return {"success": False, "message": "Authentication required"}
@@ -1827,7 +1958,6 @@ def create_customer_for_user(user_email):
 def broker_create_client(email, full_name, phone=None, ssn=None,
                          address_line1=None, address_line2=None, city=None,
                          state=None, zipcode=None, country="United States",
-                         dl_front=None, dl_back=None, proof_of_residence=None,
                          role_profile_name=None):
     """Allow a broker (authenticated) to create a buyer client.
 
@@ -1926,20 +2056,77 @@ def broker_create_client(email, full_name, phone=None, ssn=None,
             email=email
         )
 
-        # Attach files if uploaded in request.files
+        # Attach files if uploaded in request.files using same logic as upload_file
         attached_files = {}
         files = frappe.request.files or {}
-        for field_name in ("dl_front", "dl_back", "proof_of_residence"):
+        
+        # Get allowed file names for validation
+        from .files import get_allowed_file_names, validate_file
+        allowed_file_names = get_allowed_file_names()
+        
+        for field_name in ("dl_front", "dl_back", "proof_of_address", "proof_of_residence"):
             file_obj = files.get(field_name)
             if file_obj:
                 try:
-                    # save_file expects (fname, content, doctype=None, docname=None, is_private=False)
-                    fname = secure_filename(file_obj.filename) if hasattr(file_obj, 'filename') else file_obj.filename
+                    # Validate file_name is allowed (same as upload_file)
+                    if field_name not in allowed_file_names:
+                        frappe.log_error(f"Invalid file_name '{field_name}' in broker_create_client for {email}. Only allowed: {', '.join(allowed_file_names)}", "File Upload Validation")
+                        continue
+                    
+                    # Validate file using same logic as upload_file
+                    validation_result = validate_file(file_obj)
+                    if not validation_result["valid"]:
+                        frappe.log_error(f"File validation failed for {field_name} in broker_create_client for {email}: {validation_result['message']}", "File Upload Validation")
+                        continue
+                    
+                    # Generate filename using same logic as upload_file
+                    original_ext = os.path.splitext(file_obj.filename)[1] if hasattr(file_obj, 'filename') else ""
+                    base_filename = field_name
+                    base_filename = secure_filename(base_filename)
+                    
+                    # Ensure the file has the correct extension
+                    if original_ext and not base_filename.endswith(original_ext):
+                        base_filename = f"{base_filename}{original_ext}"
+                    
+                    # Create custom filename: Customer_customer_name_field_name (consistent with upload_file format)
+                    clean_customer_name = "".join(c for c in full_name if c.isalnum() or c in (' ', '-', '_')).replace(' ', '_')
+                    custom_filename = f"Customer_{clean_customer_name}_{base_filename}"
+                    custom_filename = secure_filename(custom_filename)
+                    
                     content = file_obj.read()
-                    saved = save_file(fname, content, doctype="Customer", docname=customer.name, is_private=0)
-                    attached_files[field_name] = saved.get('file_url') if isinstance(saved, dict) and saved.get('file_url') else getattr(saved, 'file_url', None)
+                    
+                    # Determine folder for private files based on allowed field name
+                    from .files import create_or_get_folder
+                    folder = create_or_get_folder(field_name, "Home")
+                    frappe.logger().info(f"Using folder '{folder}' for private file '{field_name}' in broker_create_client")
+                    
+                    # Save file using same logic as upload_file
+                    file_doc = save_file(
+                        fname=custom_filename,
+                        content=content,
+                        dt="Customer",
+                        dn=customer.name,
+                        folder=folder,
+                        is_private=1
+                    )
+                    
+                    # Handle client_signature automation (same as upload_file)
+                    if field_name == 'client_signature':
+                        frappe.db.sql("update `tabCustomer` set is_questionnaire_filled = %s where email_id = %s", (1, email))
+                    
+                    attached_files[field_name] = {
+                        "name": file_doc.name,
+                        "file_name": file_doc.file_name,
+                        "file_url": file_doc.file_url,
+                        "file_size": file_doc.file_size,
+                        "is_private": file_doc.is_private,
+                        "content_hash": file_doc.content_hash
+                    }
+                    
                 except Exception as file_err:
-                    frappe.log_error(f"Failed to attach {field_name} for {email}: {str(file_err)}")
+                    frappe.log_error(f"Failed to attach {field_name} for {email}: {str(file_err)}", "Broker Create Client File Upload")
+                    # Continue processing other files instead of throwing error
+                    attached_files[field_name] = {"error": str(file_err)}
 
         # Generate signature key for client signature
         signature_key = frappe.generate_hash(length=20)
@@ -2296,7 +2483,7 @@ def verify_email(token):
             error_message = f"""
             <div style="text-align: center; padding: 20px;">
                 <div style="margin-bottom: 30px;">
-                    <img src="{frappe.utils.get_url()}/assets/rockettradeline/images/logo.png" alt="Rocket Tradeline" style="max-height: 60px; max-width: 200px;" />
+                    <img src="{frappe.utils.get_url()}/assets/rockettradeline/logo.png" alt="Rocket Tradeline" style="max-height: 60px; max-width: 200px;" />
                 </div>
                 <div style="width: 60px; height: 60px; background-color: #ef4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px;">
                     <span style="color: white; font-size: 30px; font-weight: bold;">✗</span>
@@ -2372,7 +2559,7 @@ def verify_email(token):
         success_message = f"""
         <div style="text-align: center; padding: 20px;">
             <div style="margin-bottom: 30px;">
-                <img src="{frappe.utils.get_url()}/assets/rockettradeline/images/logo.png" alt="Rocket Tradeline" style="max-height: 60px; max-width: 200px;" />
+                <img src="{frappe.utils.get_url()}/assets/rockettradeline/logo.png" alt="Rocket Tradeline" style="max-height: 60px; max-width: 200px;" />
             </div>
             <div style="width: 60px; height: 60px; background-color: #17B26A; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px;">
                 <span style="color: white; font-size: 30px; font-weight: bold;">✓</span>
@@ -2384,7 +2571,11 @@ def verify_email(token):
             <a href="https://staging.rockettradeline.com" style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">Click Here to Login</a>
         </div>
         """
-        
+        from .marketing import send_welcome_email
+        try:
+            send_welcome_email(user_doc.email, user_doc.full_name)
+        except Exception as e:
+            frappe.log_error(f"Failed to send welcome email to {user_doc.email}: {str(e)}", "Welcome Email Error")
         frappe.respond_as_web_page("Email Verified - Rocket Tradeline", success_message, success=True)
         return
         
@@ -2886,6 +3077,41 @@ def send_reset_password_link(email):
         # Get user's full name
         full_name = user_doc.full_name or user_doc.first_name or email.split('@')[0]
         
+        # Try to use Email Template Custom first
+        try:
+            # Check if Email Template Custom exists and template is available
+            if frappe.db.exists('DocType', 'Email Template Custom') and frappe.db.exists('Email Template Custom', 'Password Reset'):
+                # Use the Email Template Custom system
+                from rockettradeline.utils.email_templates import send_email_from_template
+                
+                # Prepare context for template
+                context = {
+                    'full_name': full_name,
+                    'site_name': 'RocketTradeline',
+                    'reset_link': reset_link,
+                    'recipient_email': email
+                }
+                
+                # Send email using template
+                result = send_email_from_template('Password Reset', email, context)
+                
+                if result.get('success'):
+                    frappe.logger().info(f"Password reset email sent using template to {email}")
+                    return {
+                        "success": True,
+                        "message": "If the email address is registered, you will receive a password reset link shortly."
+                    }
+                else:
+                    frappe.log_error(f"Template password reset email failed for {email}: {result.get('error')}", "Template Email Error")
+                    # Fall back to hardcoded email below
+            else:
+                frappe.logger().info("Email Template Custom not available for password reset, using fallback method")
+        
+        except Exception as template_error:
+            frappe.log_error(f"Template password reset email system failed for {email}: {str(template_error)}", "Template Email System Error")
+            # Fall back to hardcoded email below
+        
+        # Fallback: Send email using hardcoded template (original method)
         # Get consistent email header and footer
         email_header = get_email_header()
         email_footer = get_email_footer(email)
@@ -2941,12 +3167,20 @@ def send_reset_password_link(email):
         </p>
         {email_footer}"""
         
-        # Send email
-        frappe.sendmail(
+        # Prepare template parameters
+        template_params = {
+            "full_name": full_name,
+            "site_name": frappe.local.site,
+            "reset_link": reset_link
+        }
+        
+        # Send email using template
+        from rockettradeline.rockettradeline.doctype.email_template_custom.email_template_custom import send_email_template
+        
+        send_email_template(
+            template_name="Password Reset",
             recipients=[email],
-            subject=subject,
-            message=message,
-            header=["Password Reset Request", "blue"]
+            parameters=template_params
         )
         
         # Log the password reset request
@@ -3162,12 +3396,20 @@ def send_client_signature_email(client_email, full_name, signature_key):
         </p>
         {email_footer}"""
         
-        # Send email
-        frappe.sendmail(
+        # Prepare template parameters
+        template_params = {
+            "full_name": full_name,
+            "signature_link": signature_link,
+            "support_email": "info@rockettradeline.com"
+        }
+        
+        # Send email using template
+        from rockettradeline.rockettradeline.doctype.email_template_custom.email_template_custom import send_email_template
+        
+        send_email_template(
+            template_name="Account Setup Required",
             recipients=[client_email],
-            subject=subject,
-            message=message,
-            header=["Account Setup Required", "green"]
+            parameters=template_params
         )
         
         # Log the signature request
@@ -3334,13 +3576,18 @@ def upload_client_signature(key, file_content=None, filename=None):
         # Generate filename for signature
         signature_filename = f"client_signature_{email.replace('@', '_').replace('.', '_')}_{frappe.generate_hash(length=8)}{file_ext}"
         
+        # Create or get folder for client_signature
+        from .files import create_or_get_folder
+        signature_folder = create_or_get_folder("client_signature", "Home")
+        frappe.logger().info(f"Using folder '{signature_folder}' for client signature upload")
+        
         # Save file using Frappe's file manager - attach to User instead of Customer
         file_doc = save_file(
             fname=signature_filename,
             content=content,
             dt="User",
             dn=email,
-            folder="Home",
+            folder=signature_folder,
             is_private=1  # Keep signatures private
         )
         

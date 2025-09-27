@@ -6,7 +6,8 @@
  "engine": "InnoDB",
  "field_order": [
   "bank_name",
-  "image"
+  "image",
+  "status"
  ],
  "fields": [
   {
@@ -19,11 +20,18 @@
    "fieldname": "image",
    "fieldtype": "Attach Image",
    "label": "Image"
+  },
+  {
+   "default": "0",
+   "fieldname": "status",
+   "fieldtype": "Check",
+   "label": "Status",
+   "options": "Active\nInActive"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-08-13 12:32:29.192403",
+ "modified": "2025-09-23 20:22:01.417047",
  "modified_by": "Administrator",
  "module": "Rockettradeline",
  "name": "Tradeline Bank",

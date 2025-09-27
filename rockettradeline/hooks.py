@@ -151,11 +151,11 @@ patches = [
 # ---------------
 # Hook on document methods and events
 
-doc_events = {
-    "Payment Request": {
-        "on_update": "rockettradeline.rockettradeline.doctype.payment_request.payment_request.on_payment_request_update",
-    }
-}
+# doc_events = {
+#     "Payment Request": {
+#         "on_update": "rockettradeline.rockettradeline.doctype.payment_request.payment_request.on_payment_request_update",
+#     }
+# }
 
 # Scheduled Tasks
 # ---------------
@@ -164,6 +164,11 @@ scheduler_events = {
 	# "all": [
 	# 	"rockettradeline.tasks.all"
 	# ],
+	"cron": {
+		"*/1 * * * *": [
+			"rockettradeline.tasks.process_email_queue"
+		]
+	},
 	# "daily": [
 	# 	"rockettradeline.tasks.daily"
 	# ],
@@ -177,6 +182,7 @@ scheduler_events = {
 	# 	"rockettradeline.tasks.monthly"
 	# ],
 }
+
 
 # Testing
 # -------

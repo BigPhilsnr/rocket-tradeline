@@ -8,127 +8,95 @@ from .auth import jwt_required, get_authenticated_user, get_email_header, get_em
 
 
 def send_payment_request_notification_email(payment_request_doc):
-    """Send email notification to admin when payment request is created"""
-    # Get consistent email header and footer
-    email_header = get_email_header()
-    email_footer = get_email_footer("info@rockettradeline.com")
-    
-    # Format payment request details for email
-    payment_details = f"""{email_header}
-    <h3 style="color: #374151; margin: 0 0 20px 0;">New Payment Request Created</h3>
-    <div style="background-color: #f9fafb; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
-        <p style="margin: 5px 0;"><strong>Payment Request ID:</strong> {payment_request_doc.name}</p>
-        <p style="margin: 5px 0;"><strong>Customer:</strong> {getattr(payment_request_doc, 'customer_name', 'N/A')} ({payment_request_doc.customer_email})</p>
-        <p style="margin: 5px 0;"><strong>Payment Method:</strong> {payment_request_doc.payment_method}</p>
-        <p style="margin: 5px 0;"><strong>Amount:</strong> ${payment_request_doc.amount:.2f}</p>
-        <p style="margin: 5px 0;"><strong>Total Amount:</strong> ${payment_request_doc.total_amount:.2f}</p>
-        <p style="margin: 5px 0;"><strong>Cart ID:</strong> {payment_request_doc.cart_id}</p>
-        <p style="margin: 5px 0;"><strong>Status:</strong> {payment_request_doc.status}</p>
-        <p style="margin: 5px 0;"><strong>Created At:</strong> {getattr(payment_request_doc, 'created_at', payment_request_doc.creation)}</p>
-    </div>
-    
-    <h4 style="color: #374151; margin: 20px 0 15px 0;">Action Required:</h4>
-    <p style="color: #6b7280; line-height: 1.6; margin: 0 0 20px 0;">
-        Please log in to the admin portal to review and approve this payment request.
-    </p>
-    
-    <div style="text-align: center; margin: 30px 0;">
-        <a href="https://rocket-app.tiberbuhealth.com/app/payment-request/{payment_request_doc.name}" 
-           style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; 
-                  border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">
-            View Payment Request
-        </a>
-    </div>
-    {email_footer}"""
-    
-    # Send email to admin
+    """Send email notification to admin when payment request is created using Email Template Custom"""
     try:
-        result = frappe.sendmail(
+        # Import email template utility
+        from rockettradeline.utils.email_templates import send_email_from_template
+        
+        # Get customer name (fallback to email if name not available)
+        customer_name = getattr(payment_request_doc, 'customer_name', payment_request_doc.customer_email)
+        if not customer_name or customer_name == payment_request_doc.customer_email:
+            # Try to get customer name from Customer doctype if it exists
+            try:
+                customer_doc = frappe.get_doc("Customer", {"email_id": payment_request_doc.customer_email})
+                customer_name = customer_doc.customer_name
+            except:
+                customer_name = payment_request_doc.customer_email
+        
+        # Prepare context for the email template
+        context = {
+            'payment_request_id': payment_request_doc.name,
+            'customer_name': customer_name,
+            'customer_email': payment_request_doc.customer_email,
+            'payment_method': payment_request_doc.payment_method,
+            'amount': f"{payment_request_doc.amount:.2f}",
+            'total_amount': f"{payment_request_doc.total_amount:.2f}",
+            'cart_id': payment_request_doc.cart_id,
+            'status': payment_request_doc.status,
+            'created_at': str(getattr(payment_request_doc, 'created_at', payment_request_doc.creation)),
+            'payment_request_url': f"https://rocket-app.tiberbuhealth.com/app/payment-request/{payment_request_doc.name}",
+            'admin_portal_url': 'https://rocket-app.tiberbuhealth.com/app'
+        }
+        
+        # Send email using Email Template Custom
+        result = send_email_from_template(
+            template_name='Payment Request Notification',
             recipients=["info@rockettradeline.com"],
-            subject=f"New Payment Request - {payment_request_doc.name}",
-            message=payment_details,
-            header=["New Payment Request Notification"],
-            delayed=False
+            context=context
         )
         
-        return True
+        if result.get('success'):
+            frappe.logger().info(f"Payment request notification email sent successfully for {payment_request_doc.name}")
+            return True
+        else:
+            frappe.log_error(
+                f"Failed to send payment request notification email for {payment_request_doc.name}: {result.get('error')}", 
+                "Payment Request Email Error"
+            )
+            return False
         
     except Exception as e:
+        frappe.log_error(
+            f"Error sending payment request notification email for {payment_request_doc.name}: {str(e)}", 
+            "Payment Request Email Error"
+        )
+        # Fallback to throwing exception to maintain backward compatibility
         frappe.throw(f"Failed to send payment notification email: {str(e)}")
+        return False
 
 
 def send_payment_approval_email(payment_request_doc):
     """Send email notification to customer when payment is approved"""
-    # Get cart details
-    cart = frappe.get_doc("Tradeline Cart", payment_request_doc.cart_id)
-    cart_items = cart.get("items", [])
-    
-    # Format tradeline details
-    tradeline_details = ""
-    if cart_items:
-        tradeline_details = "<h4 style='color: #374151; margin: 20px 0 15px 0;'>Your Tradelines:</h4><ul style='margin: 0 0 20px 20px; padding: 0;'>"
-        for item in cart_items:
-            tradeline_details += f"<li style='margin: 5px 0; color: #6b7280;'>{item.tradeline_name} - ${item.amount:.2f}</li>"
-        tradeline_details += "</ul>"
-    
-    # Get consistent email header and footer
-    email_header = get_email_header()
-    email_footer = get_email_footer(payment_request_doc.customer_email)
-    
-    # Format approval email
-    approval_message = f"""{email_header}
-    <h3 style="color: #17B26A; margin: 0 0 20px 0;">Payment Approved - Tradelines Activated!</h3>
-    <p style="color: #374151; font-size: 16px; margin: 0 0 10px 0;">Dear {getattr(payment_request_doc, 'customer_name', 'Customer')},</p>
-    
-    <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 0 0 25px 0;">
-        Great news! Your payment request has been approved and your tradelines are now active in your portal.
-    </p>
-    
-    <h4 style="color: #374151; margin: 20px 0 15px 0;">Payment Details:</h4>
-    <div style="background-color: #f9fafb; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
-        <p style="margin: 5px 0;"><strong>Payment Request ID:</strong> {payment_request_doc.name}</p>
-        <p style="margin: 5px 0;"><strong>Payment Method:</strong> {payment_request_doc.payment_method}</p>
-        <p style="margin: 5px 0;"><strong>Total Amount Paid:</strong> ${payment_request_doc.total_amount:.2f}</p>
-        <p style="margin: 5px 0;"><strong>Transaction ID:</strong> {getattr(payment_request_doc, 'transaction_id', 'N/A') or 'N/A'}</p>
-        <p style="margin: 5px 0;"><strong>Approved At:</strong> {getattr(payment_request_doc, 'approved_at', payment_request_doc.creation)}</p>
-    </div>
-    
-    {tradeline_details}
-    
-    <h4 style="color: #374151; margin: 20px 0 15px 0;">Next Steps:</h4>
-    <ol style="margin: 0 0 25px 20px; padding: 0; color: #6b7280; line-height: 1.6;">
-        <li style="margin: 5px 0;">Log in to your portal to view your active tradelines</li>
-        <li style="margin: 5px 0;">Monitor your credit report for the new tradelines (typically appears within 30-60 days)</li>
-        <li style="margin: 5px 0;">Contact our support team if you have any questions</li>
-    </ol>
-    
-    <div style="text-align: center; margin: 30px 0;">
-        <a href="https://rocket-app.tiberbuhealth.com/app" 
-           style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; 
-                  border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">
-            Access Your Portal
-        </a>
-    </div>
-    
-    <p style="color: #6b7280; margin: 25px 0 0 0; font-size: 16px;">
-        Thank you for choosing RocketTradeline!
-    </p>
-    
-    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 25px 0;">
-    <p style="font-size: 12px; color: #9ca3af; margin: 0;">
-        If you have any questions, please contact us at info@rockettradeline.com
-    </p>
-    {email_footer}"""
-    
-    # Send email to customer
     try:
-        result = frappe.sendmail(
-            recipients=[payment_request_doc.customer_email],
-            subject=f"Payment Approved - Your Tradelines Are Active!",
-            message=approval_message,
-            header=["Payment Approved"],
-            delayed=False
-        )
+        # Import email template utility
+        from rockettradeline.utils.email_templates import send_email_from_template
+        
+        # Get cart details
+        cart = frappe.get_doc("Tradeline Cart", payment_request_doc.cart_id)
+        cart_items = cart.get("items", [])
+        
+        # Format tradeline details HTML
+        tradeline_details = ""
+        if cart_items:
+            tradeline_details = "<h4 style='color: #374151; margin: 20px 0 15px 0;'>Your Tradelines:</h4><ul style='margin: 0 0 20px 20px; padding: 0;'>"
+            for item in cart_items:
+                tradeline_details += f"<li style='margin: 5px 0; color: #6b7280;'>{item.tradeline_name} - ${item.amount:.2f}</li>"
+            tradeline_details += "</ul>"
+        
+        # Prepare template context
+        context = {
+            'customer_name': getattr(payment_request_doc, 'customer_name', 'Customer'),
+            'payment_request_id': payment_request_doc.name,
+            'payment_method': payment_request_doc.payment_method,
+            'total_amount': f"{payment_request_doc.total_amount:.2f}",
+            'transaction_id': getattr(payment_request_doc, 'transaction_id', 'N/A') or 'N/A',
+            'approved_at': str(getattr(payment_request_doc, 'approved_at', payment_request_doc.creation)),
+            'tradeline_details': tradeline_details,
+            'portal_link': 'https://rocket-app.tiberbuhealth.com/app'
+        }
+        
+        # Send email using Email Template Custom
+        result = send_email_from_template('Payment Approval', payment_request_doc.customer_email, context)
         
         return True
         
@@ -188,29 +156,52 @@ def create_manual_payment_request(cart_id, payment_method):
         valid_methods = ["Apple Cash", "Zelle", "CashApp", "Venmo", "Bank Transfer", "Cash", "Check", "Other"]
         if payment_method not in valid_methods:
             return {"success": False, "error": f"Invalid payment method. Must be one of: {', '.join(valid_methods)}"}
+        
+         # Check for existing active payment requests for this cart
+        existing_payments = frappe.get_all(
+            "Payment Request",
+            filters={
+                "cart_id": cart_id,
+                "status": ["not in", ["Cancelled", "Failed", "Expired", "Refunded"]],
 
-        # Create manual Payment Request document
-        payment_doc = frappe.get_doc({
-            "doctype": "Payment Request",
-            "title": f"Manual Payment - {cart_id} - {now_datetime().strftime('%Y%m%d%H%M%S')}",
-            "payment_method": payment_method,
-            "cart_id": cart_id,
-            "amount": total_amount,
-            "fees": 0,  # No fees for manual payments
-            "total_amount": total_amount,
-            "customer_email": current_user,
-            "status": "Pending",
-            "created_by": current_user,
-            "created_at": now_datetime(),
-            "reference_doctype": "Tradeline Cart",
-            "reference_name": cart_id,
-            "is_manual_payment": 1,
-            "approval_status": "Pending Approval",
-            "proof_of_payment": file_url,
-            "instructions": f"Manual payment submission for {payment_method}. Awaiting admin approval."
-        })
+            },
+            fields=["name", "status", "created_at"],
+            limit=1
+        )
+        payment_doc = None
+        if existing_payments:
+            existing_payment = existing_payments[0]
+            ep = frappe.get_doc("Payment Request", existing_payment.name)
+            ep.payment_method = payment_method
+            ep.approval_status = "Pending Approval"
+            ep.proof_of_payment = file_url
+            ep.save(ignore_permissions=True)
+            payment_doc = ep
+        
+        else:
+             
+            # Create manual Payment Request document
+            payment_doc = frappe.get_doc({
+                "doctype": "Payment Request",
+                "title": f"Manual Payment - {cart_id} - {now_datetime().strftime('%Y%m%d%H%M%S')}",
+                "payment_method": payment_method,
+                "cart_id": cart_id,
+                "amount": total_amount,
+                "fees": 0,  # No fees for manual payments
+                "total_amount": total_amount,
+                "customer_email": current_user,
+                "status": "Pending",
+                "created_by": current_user,
+                "created_at": now_datetime(),
+                "reference_doctype": "Tradeline Cart",
+                "reference_name": cart_id,
+                "is_manual_payment": 1,
+                "approval_status": "Pending Approval",
+                "proof_of_payment": file_url,
+                "instructions": f"Manual payment submission for {payment_method}. Awaiting admin approval."
+            })
 
-        payment_doc.insert(ignore_permissions=True)
+            payment_doc.insert(ignore_permissions=True)
         
         # If we have a file, link it to the Payment Request
         if file_url:
@@ -366,15 +357,15 @@ def approve_manual_payment(payment_request_id, approval_action="approve", reject
         if not payment_req.is_manual_payment:
             return {"success": False, "error": "This is not a manual payment request"}
         
-        if payment_req.approval_status != "Pending Approval":
-            return {"success": False, "error": f"Payment request is already {payment_req.approval_status.lower()}"}
+        if payment_req.approval_status == "Approved":
+            return {"success": False, "error": f"Payment request is already approved please request refund if needed"}
 
         if approval_action == "approve":
             # Approve the payment
             payment_req.approval_status = "Approved"
             payment_req.approved_by = current_user
             payment_req.approved_at = now_datetime()
-            payment_req.status = "Draft"  # Set to Draft as requested
+            payment_req.status = "Approved"  # Set to Approved as requested
             
             # Create transaction ID
             payment_req.transaction_id = f"MANUAL_{payment_req.payment_method.upper()}_{now_datetime().strftime('%Y%m%d%H%M%S')}"

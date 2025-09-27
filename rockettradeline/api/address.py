@@ -4,11 +4,14 @@ from .auth import jwt_required, get_authenticated_user
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def create_address(address_title, address_line1, address_line2=None, city=None, state=None, country=None, pincode=None, email=None):
+def create_address(address_title, address_line1, address_line2=None, city=None, state=None, country=None, pincode=None, email=None, phone=None, zip_code=None, is_default=0, address_type="Personal"):
     """
     Create a new address
     """
     try:
+        
+        if zip_code:
+            pincode = zip_code  # Support both pincode and zip_code
         # Get authenticated user
         user = get_authenticated_user()
         if not user:
@@ -24,6 +27,9 @@ def create_address(address_title, address_line1, address_line2=None, city=None, 
                 "success": False,
                 "message": "Address title and address line 1 are required"
             }
+            
+        # Get or create Customer for this user
+        customer_name= frappe.db.get_value("Customer", {"email_id": user}, "name")
         
         # Create address document
         address_doc = frappe.get_doc({
@@ -36,7 +42,14 @@ def create_address(address_title, address_line1, address_line2=None, city=None, 
             "country": country,
             "pincode": pincode,
             "email_id": email,
-            "address_type": "Billing"  # Default address type
+            "phone": phone,
+            "address_type": address_type,
+             "is_primary_address": is_default,
+            "is_shipping_address": 0,
+            "links": [{
+                "link_doctype": "Customer",
+                "link_name": customer_name
+            }]
         })
 
         address_doc.insert(ignore_permissions=True)
@@ -52,8 +65,11 @@ def create_address(address_title, address_line1, address_line2=None, city=None, 
                 "city": address_doc.city,
                 "state": address_doc.state,
                 "country": address_doc.country,
-                "pincode": address_doc.pincode,
-                "email_id": address_doc.email_id
+                "zip_code": address_doc.pincode,
+                "email_id": address_doc.email_id,
+                "is_default": address_doc.is_primary_address,
+                "phone": address_doc.phone,
+                "address_type": address_doc.address_type
             }
         }
     except Exception as e:
@@ -65,11 +81,14 @@ def create_address(address_title, address_line1, address_line2=None, city=None, 
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def update_address(address_id, address_title=None, address_line1=None, address_line2=None, city=None, state=None, country=None, pincode=None, email=None):
+def update_address(address_id, address_title=None, address_line1=None, address_line2=None, city=None, state=None, country=None, pincode=None, email=None,zip_code=None, is_default=None  ):
     """
     Update an existing address
     """
     try:
+        
+        if zip_code:
+            pincode = zip_code  # Support both pincode and zip_code
         # Get authenticated user
         user = get_authenticated_user()
         if not user:
@@ -106,7 +125,8 @@ def update_address(address_id, address_title=None, address_line1=None, address_l
             address_doc.pincode = pincode
         if email is not None:
             address_doc.email_id = email
-        
+        if is_default is not None:
+            address_doc.is_primary_address = int(is_default)
         address_doc.save()
         
         return {
@@ -120,7 +140,8 @@ def update_address(address_id, address_title=None, address_line1=None, address_l
                 "city": address_doc.city,
                 "state": address_doc.state,
                 "country": address_doc.country,
-                "pincode": address_doc.pincode,
+                "zip_code": address_doc.pincode,
+                "is_default": address_doc.is_primary_address,
                 "email_id": address_doc.email_id
             }
         }
@@ -157,9 +178,14 @@ def get_addresses_by_email(email):
         # Get addresses for email
         addresses = frappe.get_all("Address", 
             filters={"email_id": email},
-            fields=["name", "address_title", "address_line1", "address_line2", "city", "state", "country", "pincode", "email_id", "address_type"],
+            fields=["name", "address_title", "address_line1", "address_line2", "city", "state", "country", "pincode", "email_id", "address_type", "phone", "is_primary_address"],
             order_by="creation desc"
         )
+        
+        # Map fields: pincode -> zip_code, is_primary_address -> is_default
+        for address in addresses:
+            address["zip_code"] = address.pop("pincode", None)
+            address["is_default"] = address.pop("is_primary_address", 0)
         
         return {
             "success": True,

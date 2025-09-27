@@ -23,7 +23,9 @@
   "item",
   "balance",
   "requires_ssn",
-  "requires_address"
+  "requires_address",
+  "commission",
+  "credit_usage"
  ],
  "fields": [
   {
@@ -140,11 +142,21 @@
    "fieldname": "requires_address",
    "fieldtype": "Check",
    "label": "Requires Address"
+  },
+  {
+   "fieldname": "commission",
+   "fieldtype": "Float",
+   "label": "Commission"
+  },
+  {
+   "fieldname": "credit_usage",
+   "fieldtype": "Float",
+   "label": "Credit Usage"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-08-31 04:50:38.377182",
+ "modified": "2025-09-20 21:10:24.965125",
  "modified_by": "Administrator",
  "module": "Rockettradeline",
  "name": "Tradeline",

@@ -7,7 +7,7 @@ from .utils import is_administrator
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_customers(customer_type=None, is_seller=None, is_buyer=None, status=None, limit=50, start=0, search=None):
+def get_customers(customer_type=None, is_seller=None, is_buyer=None, status=None, limit=50, start=0, search=None, role_profile_name=None):
     """Get customers list (Admin only)"""
     try:
         current_user = get_authenticated_user()
@@ -43,18 +43,23 @@ def get_customers(customer_type=None, is_seller=None, is_buyer=None, status=None
         # Filter by status if provided
         if status:
             if status.lower() == "active":
-                conditions.append("disabled = 0")
+                conditions.append("c.disabled = 0")
             elif status.lower() == "disabled":
-                conditions.append("disabled = 1")
+                conditions.append("c.disabled = 1")
+        
+        # Filter by role profile name if provided
+        if role_profile_name:
+            conditions.append(f"u.role_profile_name = '{role_profile_name}'")
         
         # Add search functionality
         if search:
             search_value = search.replace("'", "''")  # Escape single quotes
             search_conditions = [
-                f"customer_name LIKE '%{search_value}%'",
-                f"email_id LIKE '%{search_value}%'", 
-                f"mobile_no LIKE '%{search_value}%'",
-                f"customer_group LIKE '%{search_value}%'"
+                f"c.customer_name LIKE '%{search_value}%'",
+                f"c.email_id LIKE '%{search_value}%'", 
+                f"c.mobile_no LIKE '%{search_value}%'",
+                f"c.customer_group LIKE '%{search_value}%'",
+                f"u.role_profile_name LIKE '%{search_value}%'"
             ]
             conditions.append(f"({' OR '.join(search_conditions)})")
         
@@ -63,10 +68,11 @@ def get_customers(customer_type=None, is_seller=None, is_buyer=None, status=None
         if conditions:
             where_clause = "WHERE " + " AND ".join(conditions)
         
-        # Get total count
+        # Get total count (using JOIN for role_profile_name filter)
         count_query = f"""
             SELECT COUNT(*) as total
-            FROM `tabCustomer`
+            FROM `tabCustomer` c
+            LEFT JOIN `tabUser` u ON u.name = c.email_id
             {where_clause}
         """
         
@@ -76,27 +82,29 @@ def get_customers(customer_type=None, is_seller=None, is_buyer=None, status=None
         # Get paginated results
         query = f"""
             SELECT 
-                name,
-                customer_name,
-                customer_type,
-                customer_group,
-                territory,
-                email_id,
-                mobile_no,
-                website,
-                is_seller,
-                disabled,
-                creation,
-                modified,
-                tax_id,
-                customer_primary_contact,
-                customer_primary_address,
-                default_currency,
-                default_price_list,
-                payment_terms
-            FROM `tabCustomer`
+                c.name,
+                c.customer_name,
+                c.customer_type,
+                c.customer_group,
+                c.territory,
+                c.email_id,
+                c.mobile_no,
+                c.website,
+                c.is_seller,
+                c.disabled,
+                c.creation,
+                c.modified,
+                c.tax_id,
+                c.customer_primary_contact,
+                c.customer_primary_address,
+                c.default_currency,
+                c.default_price_list,
+                c.payment_terms,
+                u.role_profile_name
+            FROM `tabCustomer` c
+            LEFT JOIN `tabUser` u ON u.name = c.email_id
             {where_clause}
-            ORDER BY modified DESC
+            ORDER BY c.modified DESC
             LIMIT {int(limit)} OFFSET {int(start)}
         """
         
@@ -106,11 +114,12 @@ def get_customers(customer_type=None, is_seller=None, is_buyer=None, status=None
         stats_query = f"""
             SELECT 
                 COUNT(*) as total_customers,
-                SUM(CASE WHEN is_seller = 1 THEN 1 ELSE 0 END) as total_sellers,
-                SUM(CASE WHEN (is_seller = 0 OR is_seller IS NULL) THEN 1 ELSE 0 END) as total_buyers,
-                SUM(CASE WHEN disabled = 0 THEN 1 ELSE 0 END) as active_customers,
-                SUM(CASE WHEN disabled = 1 THEN 1 ELSE 0 END) as disabled_customers
-            FROM `tabCustomer`
+                SUM(CASE WHEN c.is_seller = 1 THEN 1 ELSE 0 END) as total_sellers,
+                SUM(CASE WHEN (c.is_seller = 0 OR c.is_seller IS NULL) THEN 1 ELSE 0 END) as total_buyers,
+                SUM(CASE WHEN c.disabled = 0 THEN 1 ELSE 0 END) as active_customers,
+                SUM(CASE WHEN c.disabled = 1 THEN 1 ELSE 0 END) as disabled_customers
+            FROM `tabCustomer` c
+            LEFT JOIN `tabUser` u ON u.name = c.email_id
             {where_clause}
         """
         
@@ -164,6 +173,7 @@ def get_customers(customer_type=None, is_seller=None, is_buyer=None, status=None
                 "disabled": bool(customer.disabled) if customer.disabled else False,
                 "creation": customer.creation,
                 "modified": customer.modified,
+                "role_profile_name": customer.role_profile_name,
                 "address": address_info,
                 "financial": {
                     "tax_id": customer.tax_id,
@@ -204,7 +214,8 @@ def get_customers(customer_type=None, is_seller=None, is_buyer=None, status=None
                 "is_seller": is_seller,
                 "is_buyer": is_buyer,
                 "status": status,
-                "search": search
+                "search": search,
+                "role_profile_name": role_profile_name
             },
             "user": current_user,
             "is_admin": is_admin
@@ -226,11 +237,14 @@ def get_customer_details(customer_id):
         # Check if user is administrator
         is_admin = is_administrator(current_user)
         
-        if not is_admin:
-            frappe.throw(_("Access denied. Only administrators can access customer details."))
-        
-        # Get the customer document
+         # Get the customer document
         customer_doc = frappe.get_doc("Customer", customer_id)
+        user = frappe.get_doc("User", customer_doc.email_id)
+    
+       
+        account_manager = customer_doc.account_manager
+        if account_manager and account_manager != current_user and not is_admin:
+            frappe.throw(_("Access denied. You are not the account manager for this customer."))
         
         # Get related documents and statistics
         cart_docs = frappe.get_all("Tradeline Cart", 
@@ -260,6 +274,30 @@ def get_customer_details(customer_id):
         contacts = frappe.get_all("Contact", 
             filters={"link_doctype": "Customer", "link_name": customer_id}, 
             fields=["name", "first_name", "last_name", "email_id", "phone", "mobile_no", "is_primary_contact"])
+        
+        # Get customer files/attachments
+        files = []
+        try:
+            file_docs = frappe.get_all("File", 
+                filters={
+                    "attached_to_doctype": "Customer",
+                    "attached_to_name": customer_id
+                }, 
+                fields=["name", "file_name", "file_url", "file_size", "creation", "modified", "owner"]
+            )
+            
+            for file_doc in file_docs:
+                files.append({
+                    "name": file_doc.name,
+                    "file_name": file_doc.file_name,
+                    "file_url": file_doc.file_url,
+                    "file_size": file_doc.file_size,
+                    "creation": file_doc.creation,
+                    "modified": file_doc.modified,
+                    "uploaded_by": file_doc.owner
+                })
+        except Exception as e:
+            frappe.log_error(f"Error fetching customer files: {str(e)}", "Customer Files Error")
         
         # Calculate totals
         total_cart_amount = sum(float(cart.total_amount or 0) for cart in cart_docs)
@@ -291,6 +329,7 @@ def get_customer_details(customer_id):
             },
             "addresses": addresses,
             "contacts": contacts,
+            "files": files,
             "recent_activity": {
                 "carts": cart_docs,
                 "payments": payment_docs,
@@ -302,9 +341,10 @@ def get_customer_details(customer_id):
                 "total_tradeline_amount": total_tradeline_amount,
                 "total_carts": len(cart_docs),
                 "total_payments": len(payment_docs),
-                "total_client_tradelines": len(client_tradelines_docs)
+                "total_client_tradelines": len(client_tradelines_docs),
+                "total_files": len(files)
             },
-            "user": current_user,
+            "user": dict(dob=user.birth_date, role_profile_name=user.role_profile_name),
             "is_admin": is_admin
         }
         
@@ -340,6 +380,11 @@ def update_customer_status(customer_id, disabled=None, is_seller=None):
             new_disabled = 1 if str(disabled).lower() in ['true', '1', 'yes'] else 0
             if old_disabled != new_disabled:
                 customer_doc.disabled = new_disabled
+                user_doc = frappe.get_doc("User", customer_doc.email_id)
+                user_doc.enabled = 0 if new_disabled else 1
+                user_doc.save(ignore_permissions=True)
+                frappe.db.commit()
+                
                 updates_made.append(f"Status changed from {'Disabled' if old_disabled else 'Active'} to {'Disabled' if new_disabled else 'Active'}")
         
         # Update seller status

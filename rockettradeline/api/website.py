@@ -1,7 +1,8 @@
-from rockettradeline.api.auth import jwt_required, get_current_user, is_administrator, require_roles
+from rockettradeline.api.auth import jwt_required, get_current_user, require_roles
 import frappe
 from frappe import _
 import json
+from .utils import get_authenticated_user, is_administrator
 
 # Site Content APIs
 
@@ -71,14 +72,13 @@ def get_content_by_key(key):
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-@require_roles("System Manager", "Administrator")
 def set_site_content(key, value, section, page, content_type="Text"):
     """
     Set site content by key, create if not exists
     Requires System Manager or Administrator role
     """
     try:
-        user = get_current_user()
+        user =  get_authenticated_user()
         if not user or not is_administrator(user):
             frappe.local.response.http_status_code = 403
             return {
@@ -141,7 +141,7 @@ def bulk_set_site_content(content_list):
     Requires System Manager or Administrator role
     """
     try:
-        user = get_current_user()
+        user =  get_authenticated_user()
         if not user or not is_administrator(user):
             frappe.local.response.http_status_code = 403
             return {
@@ -227,7 +227,7 @@ def delete_site_content(key):
     """
     Delete site content by key
     """
-    user = frappe.session.user
+    user =  get_authenticated_user()
     if not user or not frappe.has_permission("Site Content", "delete"):
         frappe.local.response.http_status_code = 403
         return {
@@ -287,7 +287,7 @@ def update_website_settings(**kwargs):
     """
     Update website settings (backward compatibility)
     """
-    user = frappe.session.user
+    user =  get_authenticated_user()
     if not user or not frappe.has_permission("Site Content", "write"):
         frappe.local.response.http_status_code = 403
         return {
@@ -375,7 +375,8 @@ def create_faq(question, answer, category=None, sort_order=0):
             "message": str(e)
         }
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
 def update_faq(faq_id, question=None, answer=None, category=None, 
                sort_order=None, is_published=None):
     """
@@ -415,7 +416,8 @@ def update_faq(faq_id, question=None, answer=None, category=None,
             "message": str(e)
         }
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
 def delete_faq(faq_id):
     """
     Delete FAQ
@@ -439,6 +441,316 @@ def delete_faq(faq_id):
         return {
             "success": False,
             "message": str(e)
+        }
+
+@frappe.whitelist()
+def import_faqs_from_file():
+    """
+    Import FAQs from uploaded Excel/CSV file
+    Expected columns: question, answer, category (optional), sort_order (optional), is_published (optional)
+    """
+    try:
+        # Check permissions
+        user = get_authenticated_user()
+        if not user or not is_administrator(user):
+            frappe.local.response.http_status_code = 403
+            return {
+                "success": False,
+                "message": "Access denied. Admin privileges required."
+            }
+        
+        # Get uploaded file from request
+        from frappe.utils.file_manager import get_file
+        import pandas as pd
+        import io
+        import os
+        
+        # Check if file was uploaded
+        if not frappe.request.files.get('file'):
+            return {
+                "success": False,
+                "message": "No file uploaded. Please upload an Excel (.xlsx) or CSV (.csv) file."
+            }
+        
+        uploaded_file = frappe.request.files['file']
+        file_content = uploaded_file.read()
+        filename = uploaded_file.filename.lower()
+        
+        # Validate file type
+        if not (filename.endswith('.csv') or filename.endswith('.xlsx') or filename.endswith('.xls')):
+            return {
+                "success": False,
+                "message": "Invalid file format. Please upload CSV (.csv) or Excel (.xlsx, .xls) file."
+            }
+        
+        # Read file content based on type
+        try:
+            if filename.endswith('.csv'):
+                # Read CSV file
+                df = pd.read_csv(io.BytesIO(file_content))
+            else:
+                # Read Excel file
+                df = pd.read_excel(io.BytesIO(file_content))
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Error reading file: {str(e)}"
+            }
+        
+        # Validate required columns
+        required_columns = ['question', 'answer']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        
+        if missing_columns:
+            return {
+                "success": False,
+                "message": f"Missing required columns: {', '.join(missing_columns)}. Required columns are: question, answer"
+            }
+        
+        # Optional columns with defaults
+        if 'category' not in df.columns:
+            df['category'] = None
+        if 'sort_order' not in df.columns:
+            df['sort_order'] = 0
+        if 'is_published' not in df.columns:
+            df['is_published'] = 1
+        
+        # Process each row
+        results = {
+            "created": [],
+            "updated": [],
+            "errors": [],
+            "skipped": []
+        }
+        
+        total_rows = len(df)
+        
+        for index, row in df.iterrows():
+            try:
+                # Clean and validate data
+                question = str(row['question']).strip() if pd.notna(row['question']) else ""
+                answer = str(row['answer']).strip() if pd.notna(row['answer']) else ""
+                category = str(row['category']).strip() if pd.notna(row['category']) and row['category'] else None
+                
+                # Validate required fields
+                if not question or not answer:
+                    results["skipped"].append({
+                        "row": index + 2,  # +2 because index starts at 0 and we have header
+                        "reason": "Empty question or answer",
+                        "question": question[:50] + "..." if len(question) > 50 else question
+                    })
+                    continue
+                
+                # Parse optional fields
+                try:
+                    sort_order = int(row['sort_order']) if pd.notna(row['sort_order']) else 0
+                except (ValueError, TypeError):
+                    sort_order = 0
+                
+                try:
+                    is_published = int(row['is_published']) if pd.notna(row['is_published']) else 1
+                    is_published = 1 if is_published else 0
+                except (ValueError, TypeError):
+                    is_published = 1
+                
+                # Check if FAQ with same question already exists
+                existing_faq = frappe.db.get_value("FAQ", {"question": question}, ["name", "answer"])
+                
+                if existing_faq:
+                    # Update existing FAQ
+                    faq_doc = frappe.get_doc("FAQ", existing_faq[0])
+                    
+                    # Check if content is different
+                    content_changed = (
+                        faq_doc.answer != answer or
+                        faq_doc.category != category or
+                        faq_doc.sort_order != sort_order or
+                        faq_doc.is_published != is_published
+                    )
+                    
+                    if content_changed:
+                        faq_doc.answer = answer
+                        faq_doc.category = category
+                        faq_doc.sort_order = sort_order
+                        faq_doc.is_published = is_published
+                        faq_doc.save(ignore_permissions=True)
+                        
+                        results["updated"].append({
+                            "row": index + 2,
+                            "question": question[:100] + "..." if len(question) > 100 else question,
+                            "faq_id": faq_doc.name,
+                            "action": "updated"
+                        })
+                    else:
+                        results["skipped"].append({
+                            "row": index + 2,
+                            "reason": "No changes detected",
+                            "question": question[:50] + "..." if len(question) > 50 else question
+                        })
+                else:
+                    # Create new FAQ
+                    faq_doc = frappe.get_doc({
+                        "doctype": "FAQ",
+                        "question": question,
+                        "answer": answer,
+                        "category": category,
+                        "sort_order": sort_order,
+                        "is_published": is_published
+                    })
+                    
+                    faq_doc.insert(ignore_permissions=True)
+                    
+                    results["created"].append({
+                        "row": index + 2,
+                        "question": question[:100] + "..." if len(question) > 100 else question,
+                        "faq_id": faq_doc.name,
+                        "action": "created"
+                    })
+                
+            except Exception as e:
+                results["errors"].append({
+                    "row": index + 2,
+                    "error": str(e),
+                    "question": str(row.get('question', ''))[:50] + "..." if len(str(row.get('question', ''))) > 50 else str(row.get('question', ''))
+                })
+        
+        # Commit all changes
+        frappe.db.commit()
+        
+        # Prepare summary
+        summary = {
+            "total_rows": total_rows,
+            "created": len(results["created"]),
+            "updated": len(results["updated"]),
+            "skipped": len(results["skipped"]),
+            "errors": len(results["errors"])
+        }
+        
+        return {
+            "success": True,
+            "message": f"FAQ import completed. Created: {summary['created']}, Updated: {summary['updated']}, Skipped: {summary['skipped']}, Errors: {summary['errors']}",
+            "summary": summary,
+            "details": results
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"FAQ import error: {str(e)}", "FAQ Import")
+        frappe.local.response.http_status_code = 500
+        return {
+            "success": False,
+            "message": f"Import failed: {str(e)}"
+        }
+
+@frappe.whitelist()
+def get_faq_import_template():
+    """
+    Generate and return a template file for FAQ import
+    """
+    try:
+        import pandas as pd
+        import io
+        
+        # Create sample data
+        sample_data = {
+            'question': [
+                'What is a tradeline?',
+                'How long does it take to see results?',
+                'Is this service legal?'
+            ],
+            'answer': [
+                'A tradeline is an account on your credit report. It can be a credit card, loan, mortgage, or other line of credit.',
+                'Results typically appear on your credit report within 1-2 billing cycles, or approximately 30-60 days.',
+                'Yes, being added as an authorized user is completely legal and has been used for decades.'
+            ],
+            'category': [
+                'General',
+                'Timeline',
+                'Legal'
+            ],
+            'sort_order': [1, 2, 3],
+            'is_published': [1, 1, 1]
+        }
+        
+        df = pd.DataFrame(sample_data)
+        
+        # Create Excel file in memory
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='FAQ_Template', index=False)
+        
+        output.seek(0)
+        
+        # Set response headers for file download
+        frappe.local.response.filename = "faq_import_template.xlsx"
+        frappe.local.response.filecontent = output.getvalue()
+        frappe.local.response.type = "binary"
+        frappe.local.response.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        frappe.local.response.headers["Content-Disposition"] = 'attachment; filename="faq_import_template.xlsx"'
+        
+        return {
+            "success": True,
+            "message": "Template file generated successfully"
+        }
+        
+    except Exception as e:
+        frappe.local.response.http_status_code = 500
+        return {
+            "success": False,
+            "message": f"Failed to generate template: {str(e)}"
+        }
+
+@frappe.whitelist()
+def bulk_delete_faqs(faq_ids):
+    """
+    Bulk delete FAQs
+    """
+    try:
+        # Check permissions
+        user = get_authenticated_user()
+        if not user or not is_administrator(user):
+            frappe.local.response.http_status_code = 403
+            return {
+                "success": False,
+                "message": "Access denied. Admin privileges required."
+            }
+        
+        if isinstance(faq_ids, str):
+            import json
+            faq_ids = json.loads(faq_ids)
+        
+        if not isinstance(faq_ids, list):
+            return {
+                "success": False,
+                "message": "FAQ IDs must be provided as a list"
+            }
+        
+        deleted_count = 0
+        errors = []
+        
+        for faq_id in faq_ids:
+            try:
+                if frappe.db.exists("FAQ", faq_id):
+                    frappe.delete_doc("FAQ", faq_id, ignore_permissions=True)
+                    deleted_count += 1
+                else:
+                    errors.append(f"FAQ {faq_id} not found")
+            except Exception as e:
+                errors.append(f"Error deleting FAQ {faq_id}: {str(e)}")
+        
+        frappe.db.commit()
+        
+        return {
+            "success": True,
+            "message": f"Deleted {deleted_count} FAQs successfully",
+            "deleted_count": deleted_count,
+            "errors": errors
+        }
+        
+    except Exception as e:
+        frappe.local.response.http_status_code = 500
+        return {
+            "success": False,
+            "message": f"Bulk delete failed: {str(e)}"
         }
 
 # Testimonial APIs
@@ -469,7 +781,8 @@ def get_testimonials(limit=20, start=0):
             "message": str(e)
         }
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
 def create_testimonial(customer_name, testimonial, rating=5, 
                       customer_image=None, sort_order=0):
     """
@@ -511,8 +824,9 @@ def create_testimonial(customer_name, testimonial, rating=5,
             "message": str(e)
         }
 
-@frappe.whitelist()
-def update_testimonial(testimonial_id, customer_name=None, testimonial=None, 
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
+def update_testimonial(name, customer_name=None, testimonial=None, 
                       rating=None, customer_image=None, sort_order=None, 
                       is_published=None):
     """
@@ -526,7 +840,7 @@ def update_testimonial(testimonial_id, customer_name=None, testimonial=None,
                 "message": "Permission denied"
             }
         
-        testimonial_doc = frappe.get_doc("Testimonial", testimonial_id)
+        testimonial_doc = frappe.get_doc("Testimonial", name)
         
         if customer_name:
             testimonial_doc.customer_name = customer_name
@@ -553,9 +867,9 @@ def update_testimonial(testimonial_id, customer_name=None, testimonial=None,
             "success": False,
             "message": str(e)
         }
-
-@frappe.whitelist()
-def delete_testimonial(testimonial_id):
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
+def delete_testimonial(name):
     """
     Delete testimonial
     """
@@ -567,7 +881,7 @@ def delete_testimonial(testimonial_id):
                 "message": "Permission denied"
             }
         
-        frappe.delete_doc("Testimonial", testimonial_id)
+        frappe.delete_doc("Testimonial", name)
         
         return {
             "success": True,
