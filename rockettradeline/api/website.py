@@ -311,10 +311,21 @@ def get_faqs(category=None, limit=50, start=0):
     Get list of FAQs
     """
     try:
+        # Convert limit and start to integers with validation
+        try:
+            limit = int(limit) if limit else 50
+            start = int(start) if start else 0
+        except (ValueError, TypeError):
+            frappe.local.response.http_status_code = 400
+            return {"success": False, "message": "Invalid pagination parameters. 'limit' and 'start' must be valid integers."}
+        
         filters = {"is_published": 1}
         
         if category:
             filters["category"] = category
+        
+        # Get total count for pagination
+        total_count = frappe.db.count("FAQ", filters)
         
         faqs = frappe.get_all("FAQ",
             filters=filters,
@@ -324,9 +335,24 @@ def get_faqs(category=None, limit=50, start=0):
             order_by="sort_order asc, creation asc"
         )
         
+        # Calculate pagination
+        current_page = (start // limit) + 1 if limit > 0 else 1
+        total_pages = (total_count + limit - 1) // limit if limit > 0 else 1
+        has_next = (start + limit) < total_count
+        has_previous = start > 0
+        
         return {
             "success": True,
-            "faqs": faqs
+            "faqs": faqs,
+            "pagination": {
+                "current_page": current_page,
+                "total_pages": total_pages,
+                "limit": limit,
+                "start": start,
+                "has_next": has_next,
+                "has_previous": has_previous,
+                "total_records": total_count
+            }
         }
     except Exception as e:
         frappe.local.response.http_status_code = 500
@@ -443,10 +469,11 @@ def delete_faq(faq_id):
             "message": str(e)
         }
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
 def import_faqs_from_file():
     """
-    Import FAQs from uploaded Excel/CSV file
+    Import FAQs from uploaded CSV file (simplified version without pandas dependency)
     Expected columns: question, answer, category (optional), sort_order (optional), is_published (optional)
     """
     try:
@@ -459,61 +486,68 @@ def import_faqs_from_file():
                 "message": "Access denied. Admin privileges required."
             }
         
-        # Get uploaded file from request
-        from frappe.utils.file_manager import get_file
-        import pandas as pd
+        import csv
         import io
-        import os
         
         # Check if file was uploaded
         if not frappe.request.files.get('file'):
             return {
                 "success": False,
-                "message": "No file uploaded. Please upload an Excel (.xlsx) or CSV (.csv) file."
+                "message": "No file uploaded. Please upload a CSV (.csv) file."
             }
         
         uploaded_file = frappe.request.files['file']
-        file_content = uploaded_file.read()
         filename = uploaded_file.filename.lower()
         
-        # Validate file type
-        if not (filename.endswith('.csv') or filename.endswith('.xlsx') or filename.endswith('.xls')):
+        # Validate file type (only CSV for now to avoid pandas dependency)
+        if not filename.endswith('.csv'):
             return {
                 "success": False,
-                "message": "Invalid file format. Please upload CSV (.csv) or Excel (.xlsx, .xls) file."
+                "message": "Invalid file format. Please upload CSV (.csv) file. Excel files require pandas library installation."
             }
         
-        # Read file content based on type
+        # Read CSV file content
         try:
-            if filename.endswith('.csv'):
-                # Read CSV file
-                df = pd.read_csv(io.BytesIO(file_content))
-            else:
-                # Read Excel file
-                df = pd.read_excel(io.BytesIO(file_content))
+            file_content = uploaded_file.read().decode('utf-8')
+            csv_reader = csv.DictReader(io.StringIO(file_content))
+            rows = list(csv_reader)
+        except UnicodeDecodeError:
+            try:
+                # Try with different encoding
+                uploaded_file.seek(0)
+                file_content = uploaded_file.read().decode('utf-8-sig')
+                csv_reader = csv.DictReader(io.StringIO(file_content))
+                rows = list(csv_reader)
+            except Exception as e:
+                return {
+                    "success": False,
+                    "message": f"Error reading CSV file. Please ensure it's properly formatted UTF-8 CSV: {str(e)}"
+                }
         except Exception as e:
             return {
                 "success": False,
-                "message": f"Error reading file: {str(e)}"
+                "message": f"Error reading CSV file: {str(e)}"
             }
+        
+        if not rows:
+            return {
+                "success": False,
+                "message": "The CSV file appears to be empty or has no data rows."
+            }
+        
+        # Get column names from first row
+        columns = list(rows[0].keys()) if rows else []
         
         # Validate required columns
         required_columns = ['question', 'answer']
-        missing_columns = [col for col in required_columns if col not in df.columns]
+        missing_columns = [col for col in required_columns if col not in columns]
         
         if missing_columns:
+            available_columns = ', '.join(columns)
             return {
                 "success": False,
-                "message": f"Missing required columns: {', '.join(missing_columns)}. Required columns are: question, answer"
+                "message": f"Missing required columns: {', '.join(missing_columns)}. Required columns are: question, answer. Available columns: {available_columns}"
             }
-        
-        # Optional columns with defaults
-        if 'category' not in df.columns:
-            df['category'] = None
-        if 'sort_order' not in df.columns:
-            df['sort_order'] = 0
-        if 'is_published' not in df.columns:
-            df['is_published'] = 1
         
         # Process each row
         results = {
@@ -523,14 +557,18 @@ def import_faqs_from_file():
             "skipped": []
         }
         
-        total_rows = len(df)
+        total_rows = len(rows)
         
-        for index, row in df.iterrows():
+        for index, row in enumerate(rows):
             try:
                 # Clean and validate data
-                question = str(row['question']).strip() if pd.notna(row['question']) else ""
-                answer = str(row['answer']).strip() if pd.notna(row['answer']) else ""
-                category = str(row['category']).strip() if pd.notna(row['category']) and row['category'] else None
+                question = str(row.get('question', '')).strip()
+                answer = str(row.get('answer', '')).strip()
+                category = str(row.get('category', '')).strip() if row.get('category') else None
+                
+                # Remove empty category
+                if category == '' or category == 'None':
+                    category = None
                 
                 # Validate required fields
                 if not question or not answer:
@@ -543,13 +581,16 @@ def import_faqs_from_file():
                 
                 # Parse optional fields
                 try:
-                    sort_order = int(row['sort_order']) if pd.notna(row['sort_order']) else 0
+                    sort_order = int(row.get('sort_order', 0)) if row.get('sort_order') and str(row.get('sort_order')).strip() else 0
                 except (ValueError, TypeError):
                     sort_order = 0
                 
                 try:
-                    is_published = int(row['is_published']) if pd.notna(row['is_published']) else 1
-                    is_published = 1 if is_published else 0
+                    is_published_value = row.get('is_published', '1')
+                    if str(is_published_value).lower() in ['false', '0', 'no', 'n']:
+                        is_published = 0
+                    else:
+                        is_published = 1
                 except (ValueError, TypeError):
                     is_published = 1
                 
@@ -644,52 +685,58 @@ def import_faqs_from_file():
 @frappe.whitelist()
 def get_faq_import_template():
     """
-    Generate and return a template file for FAQ import
+    Generate and return a CSV template file for FAQ import (without pandas dependency)
     """
     try:
-        import pandas as pd
+        import csv
         import io
         
         # Create sample data
-        sample_data = {
-            'question': [
-                'What is a tradeline?',
-                'How long does it take to see results?',
-                'Is this service legal?'
-            ],
-            'answer': [
-                'A tradeline is an account on your credit report. It can be a credit card, loan, mortgage, or other line of credit.',
-                'Results typically appear on your credit report within 1-2 billing cycles, or approximately 30-60 days.',
-                'Yes, being added as an authorized user is completely legal and has been used for decades.'
-            ],
-            'category': [
-                'General',
-                'Timeline',
-                'Legal'
-            ],
-            'sort_order': [1, 2, 3],
-            'is_published': [1, 1, 1]
-        }
+        sample_data = [
+            {
+                'question': 'What is a tradeline?',
+                'answer': 'A tradeline is an account on your credit report. It can be a credit card, loan, mortgage, or other line of credit.',
+                'category': 'General',
+                'sort_order': '1',
+                'is_published': '1'
+            },
+            {
+                'question': 'How long does it take to see results?',
+                'answer': 'Results typically appear on your credit report within 1-2 billing cycles, or approximately 30-60 days.',
+                'category': 'Timeline', 
+                'sort_order': '2',
+                'is_published': '1'
+            },
+            {
+                'question': 'Is this service legal?',
+                'answer': 'Yes, being added as an authorized user is completely legal and has been used for decades.',
+                'category': 'Legal',
+                'sort_order': '3', 
+                'is_published': '1'
+            }
+        ]
         
-        df = pd.DataFrame(sample_data)
+        # Create CSV content
+        output = io.StringIO()
+        if sample_data:
+            fieldnames = sample_data[0].keys()
+            writer = csv.DictWriter(output, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(sample_data)
         
-        # Create Excel file in memory
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='FAQ_Template', index=False)
-        
-        output.seek(0)
+        csv_content = output.getvalue()
+        output.close()
         
         # Set response headers for file download
-        frappe.local.response.filename = "faq_import_template.xlsx"
-        frappe.local.response.filecontent = output.getvalue()
+        frappe.local.response.filename = "faq_import_template.csv"
+        frappe.local.response.filecontent = csv_content.encode('utf-8')
         frappe.local.response.type = "binary"
-        frappe.local.response.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        frappe.local.response.headers["Content-Disposition"] = 'attachment; filename="faq_import_template.xlsx"'
+        frappe.local.response.headers["Content-Type"] = "text/csv; charset=utf-8"
+        frappe.local.response.headers["Content-Disposition"] = 'attachment; filename="faq_import_template.csv"'
         
         return {
             "success": True,
-            "message": "Template file generated successfully"
+            "message": "CSV template file generated successfully"
         }
         
     except Exception as e:
@@ -761,8 +808,21 @@ def get_testimonials(limit=20, start=0):
     Get list of testimonials
     """
     try:
+        # Convert limit and start to integers with validation
+        try:
+            limit = int(limit) if limit else 20
+            start = int(start) if start else 0
+        except (ValueError, TypeError):
+            frappe.local.response.http_status_code = 400
+            return {"success": False, "message": "Invalid pagination parameters. 'limit' and 'start' must be valid integers."}
+        
+        filters = {"is_published": 1}
+        
+        # Get total count for pagination
+        total_count = frappe.db.count("Testimonial", filters)
+        
         testimonials = frappe.get_all("Testimonial",
-            filters={"is_published": 1},
+            filters=filters,
             fields=["name", "customer_name", "testimonial", "rating", 
                    "customer_image", "sort_order"],
             limit=limit,
@@ -770,9 +830,24 @@ def get_testimonials(limit=20, start=0):
             order_by="sort_order asc, creation desc"
         )
         
+        # Calculate pagination
+        current_page = (start // limit) + 1 if limit > 0 else 1
+        total_pages = (total_count + limit - 1) // limit if limit > 0 else 1
+        has_next = (start + limit) < total_count
+        has_previous = start > 0
+        
         return {
             "success": True,
-            "testimonials": testimonials
+            "testimonials": testimonials,
+            "pagination": {
+                "current_page": current_page,
+                "total_pages": total_pages,
+                "limit": limit,
+                "start": start,
+                "has_next": has_next,
+                "has_previous": has_previous,
+                "total_records": total_count
+            }
         }
     except Exception as e:
         frappe.local.response.http_status_code = 500

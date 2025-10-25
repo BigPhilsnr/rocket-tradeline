@@ -12,8 +12,73 @@ from .utils import is_administrator
 
 def verify_cart_access(cart, current_user):
     """Verify if user has access to cart (owner or administrator)"""
-    account_manager = frappe.db.get_value('Customer', dict(email_id=current_user), 'account_manager')
+    account_manager = frappe.db.get_value('Customer', dict(email_id=cart.user_id), 'account_manager')
+    # frappe.throw(f'Account Manager: {account_manager} Current User: {current_user}')
     return cart.user_id == current_user or is_administrator(current_user) or (account_manager and account_manager == current_user)
+
+def validate_cart_slots(cart):
+    """
+    Validate that all tradelines in cart have sufficient available slots
+    Returns dict with success status and error details if validation fails
+    """
+    if not cart.items:
+        return {'success': False, 'error': 'Cart is empty'}
+    
+    validation_errors = []
+    
+    for item in cart.items:
+        try:
+            # Get fresh tradeline data from database
+            tradeline = frappe.get_doc('Tradeline', item.tradeline)
+            
+            # Check if tradeline is still active
+            if tradeline.status != 'Active':
+                validation_errors.append({
+                    'tradeline': item.tradeline,
+                    'tradeline_name': item.tradeline_name,
+                    'error': f'Tradeline is no longer active (Status: {tradeline.status})'
+                })
+                continue
+            
+            # Calculate current remaining spots
+            # Get all active/pending client tradelines for this tradeline (excluding current cart)
+            active_client_tradelines = frappe.get_all('Client Tradelines',
+                filters={
+                    'tradeline': item.tradeline,
+                    'status': ['in', ['Active', 'Inactive', 'Pending AU', 'Refund Requested']]
+                },
+                fields=['quantity']
+            )
+            
+            total_purchased = sum(int(ct.quantity or 0) for ct in active_client_tradelines)
+            current_remaining = int(tradeline.max_spots or 0) - total_purchased
+            
+            # Check if requested quantity exceeds available spots
+            requested_quantity = int(item.quantity or 0)
+            if requested_quantity > current_remaining:
+                validation_errors.append({
+                    'tradeline': item.tradeline,
+                    'tradeline_name': item.tradeline_name,
+                    'requested': requested_quantity,
+                    'available': current_remaining,
+                    'error': f'Insufficient slots. Requested: {requested_quantity}, Available: {current_remaining}'
+                })
+        
+        except Exception as e:
+            validation_errors.append({
+                'tradeline': item.tradeline,
+                'tradeline_name': item.tradeline_name,
+                'error': f'Validation error: {str(e)}'
+            })
+    
+    if validation_errors:
+        return {
+            'success': False,
+            'error': 'Maximum slots exceeded',
+            'validation_errors': validation_errors
+        }
+    
+    return {'success': True, 'message': 'All slots are available'}
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
@@ -66,7 +131,7 @@ def create_cart():
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_cart(cart_id=None, status='Active'):
+def get_cart(cart_id=None, status='Active Only'):
     """Get user's cart (active cart if no cart_id provided)"""
     try:
         current_user = get_authenticated_user()
@@ -86,24 +151,28 @@ def get_cart(cart_id=None, status='Active'):
                 {'user_id': current_user, 'status': 'Active'},
                 'name'
             )
-            
-            cart_checkout = frappe.db.get_value(
-                'Tradeline Cart',
-                {'user_id': current_user, 'status': 'Checked Out'},
-                'name'
-            )
-            
-            if cart_checkout:
-                cart_checkout_one = frappe.db.get_value(
-                'Payment Request',
-                {'cart_id': cart_checkout, 'status': 'Pending'},
-                'cart_id'
+            # return cart_name
+            if cart_name:
+                print("No active cart found")
+            else:
+                return {'success': False, 'error': 'No active cart found', 'user': current_user}
+                cart_checkout = frappe.db.get_value(
+                    'Tradeline Cart',
+                    {'user_id': current_user, 'status': 'Checked Out'},
+                    'name'
                 )
+                
+                if cart_checkout:
+                    cart_checkout_one = frappe.db.get_value(
+                    'Payment Request',
+                    {'cart_id': cart_checkout, 'status': 'Pending'},
+                    'cart_id'
+                    )
 
-                if cart_checkout_one:
-                    cart_name = cart_checkout_one
-                 
-            
+                    if cart_checkout_one:
+                        cart_name = cart_checkout_one
+                    
+                
 
 
             if not cart_name:
@@ -158,10 +227,12 @@ def add_to_cart(tradeline_id, quantity=1, cart_id=None):
         if quantity <= 0:
             return {'success': False, 'error': 'Quantity must be greater than 0'}
         
+        
         # Validate tradeline exists and is active
         tradeline = frappe.get_doc('Tradeline', tradeline_id)
         if tradeline.status != 'Active':
             return {'success': False, 'error': 'Tradeline is not active'}
+        
         
         if quantity > tradeline.max_spots:
             return {'success': False, 'error': f'Only {tradeline.max_spots} spots available'}
@@ -169,6 +240,9 @@ def add_to_cart(tradeline_id, quantity=1, cart_id=None):
         # Get or create cart
         if cart_id:
             cart = frappe.get_doc('Tradeline Cart', cart_id)
+            if cart.status != 'Active':
+                frappe.throw('Cart is not active', frappe.ValidationError)
+            
             if not verify_cart_access(cart, current_user):
                 return {'success': False, 'error': 'Access denied'}
         else:
@@ -233,7 +307,7 @@ def add_to_cart(tradeline_id, quantity=1, cart_id=None):
         
     except Exception as e:
         frappe.log_error(f"Add to cart error: {str(e)}", "Cart API Error")
-        return {'success': False, 'error': str(e)}
+        frappe.throw(str(e), frappe.ValidationError)
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
@@ -483,14 +557,22 @@ def apply_discount(discount_type, discount_value, cart_id=None):
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def checkout_cart(cart_id=None, address_id=None):
+def checkout_cart(cart_id=None, address_id=None, buyer=None):
     """Checkout cart and create order"""
     try:
         current_user = get_authenticated_user()
         if not current_user:
             return {'success': False, 'error': 'Authentication required'}
         
+        
+        if buyer:
+            if current_user != frappe.get_value('Customer', {'email_id': buyer}, 'account_manager'):
+                frappe.response.http_status_code = 417
+                return {'success': False, 'error': f'You are not the account manager for this buyer {frappe.get_value('Customer', {'email_id': buyer}, 'account_manager')} != {current_user}'}
         #update return with correct status code 417 instead of success false
+
+        current_user = buyer if buyer else current_user
+        
         
         # validate user status
         user_status = frappe.db.get_value('User', current_user, 'enabled')
@@ -504,18 +586,21 @@ def checkout_cart(cart_id=None, address_id=None):
             frappe.response.http_status_code = 417
             return {'success': False, 'error': 'Customer not found'}
 
-        if not customer.get('has_signed_agreement'):
+        if not customer.get('has_signed_agreement') and not buyer:
             frappe.response.http_status_code = 417
             return {'success': False, 'error': 'Customer has not signed the agreement'}
 
-        if not customer.get('is_questionnaire_filled'):
+        if not customer.get('is_questionnaire_filled') and not buyer:
             frappe.response.http_status_code = 417
             return {'success': False, 'error': 'Customer has not filled the questionnaire'}
+        
+        
 
         # Get cart
         if cart_id:
+            # frappe.db.set_value('Tradeline Cart', cart_id, 'user', current_user)
             cart = frappe.get_doc('Tradeline Cart', cart_id)
-            if not verify_cart_access(cart, current_user):
+            if not verify_cart_access(cart, current_user) and not buyer:
                return {'success': False, 'error': f'Access denied for cart {cart_id} for user {current_user}'}
         else:
             cart_name = frappe.db.get_value(
@@ -537,24 +622,29 @@ def checkout_cart(cart_id=None, address_id=None):
         if not cart.customer:
             return {'success': False, 'error': 'Customer information is required for checkout'}
         
+        # Validate slot availability before checkout
+        slot_validation = validate_cart_slots(cart)
+        if not slot_validation.get('success'):
+            frappe.response.http_status_code = 409  # Conflict status code
+            return slot_validation
+        
+        
         # Process checkout
         cart.status = "Checked Out"
         cart.payment_status = "Pending"
-        cart.payment_adress = address_id
-        cart.save()
+        cart.customer  = frappe.db.get_value('Customer', {'email_id': current_user}, 'name')
+        cart.payment_address = address_id
+        cart.user_id = buyer or current_user
+        cart.save(ignore_permissions=True)
         
-        # Create Sales Order (if needed)
-        sales_order = None
-        try:
-            sales_order = create_sales_order_from_cart(cart)
-        except Exception as e:
-            frappe.log_error(f"Sales order creation failed: {str(e)}", "Cart Checkout Error")
+        
         
         return {
             'success': True,
             'message': 'Checkout completed successfully',
+            'user': current_user,
             'cart': cart.as_dict(),
-            'sales_order': sales_order.name if sales_order else None,
+            # 'sales_order': sales_order.name if sales_order else None,
             'next_steps': 'Please proceed with payment processing'
         }
         
@@ -587,7 +677,7 @@ def get_carts(limit=20, start=0, status=None, user_id=None, search=None, order_b
                 filters['user_id'] = user_id
         else:
             # Regular users can only see their own carts
-            filters['user_id'] = current_user
+            filters['owner'] = current_user
         
         # Add status filter if provided
         if status:
@@ -689,14 +779,16 @@ def get_carts(limit=20, start=0, status=None, user_id=None, search=None, order_b
             cart['latest_payment'] = latest_payment
         
         # Build pagination object
+        current_page = (start // limit) + 1 if limit > 0 else 1
+        total_pages = (total_count + limit - 1) // limit if limit > 0 else 1
         pagination = {
-            'total': total_count,
+            'current_page': current_page,
+            'total_pages': total_pages,
             'limit': limit,
             'start': start,
-            'current_page': (start // limit) + 1,
-            'total_pages': -(-total_count // limit),  # Ceiling division
             'has_next': (start + limit) < total_count,
-            'has_previous': start > 0
+            'has_previous': start > 0,
+            'total_records': total_count
         }
         
         # Get summary statistics for admin

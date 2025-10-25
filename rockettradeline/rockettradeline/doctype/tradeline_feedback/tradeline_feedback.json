@@ -52,7 +52,7 @@
    "fieldname": "question_1_why_buying",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Why are you looking to buy a tradeline?",
+   "label": "Importance of your Credit",
    "options": "I want to buy a home or property\nI want to refinance a mortgage\nI want to buy a car\nI want to apply for a personal or business loan\nOther reasons (e.g. rent a house)",
    "reqd": 1
   },
@@ -60,24 +60,24 @@
    "fieldname": "question_2_importance",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "What are your main reasons for purchasing a tradeline?",
-   "options": "To access lower interest rates\nTo access higher credit limits\nTo boost your credit score\nQualify to buy a house\nQualify to buy a Car",
+   "label": "Purpose",
+   "options": "To access lower interest rates\nTo reduce credit utilization rate\nTo rebuild credit after financial setbacks\nTo strengthen my credit profile for future opportunities",
    "reqd": 1
   },
   {
    "fieldname": "question_3_credit_score",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "What is your current credit score?",
-   "options": "Bad credit: 300 to 579\nFair credit: 630 to 689\nGood credit: 690 to 719\nExcellent credit: 720 to 850",
+   "label": "Your Credit History",
+   "options": "Poor: 300–579\nFair: 580–669\nGood: 670–739\nVery Good: 740–799\nExcellent: 800–850",
    "reqd": 1
   },
   {
    "fieldname": "question_4_derogatory_marks",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Do you have any of the following derogatory marks?",
-   "options": "​​Late payments that are around 30 days or more past due\nCharge-offs\nForeclosures\nBankruptcy filings\nRepossessions",
+   "label": "Derogatory marks",
+   "options": "Late payments\nCollections or Charge-offs\nForeclosures\nBankruptcy filings\nRepossessions\nNone of the above",
    "reqd": 1
   },
   {

@@ -21,6 +21,12 @@
   "tradeline_name",
   "quantity",
   "unit_price",
+  "subtotal",
+  "section_break_discount",
+  "discount_type",
+  "discount_value",
+  "column_break_discount",
+  "discount_amount",
   "total_amount",
   "additional_info_section",
   "notes",
@@ -140,6 +146,43 @@
    "precision": "2"
   },
   {
+   "fieldname": "subtotal",
+   "fieldtype": "Currency",
+   "label": "Subtotal",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_discount",
+   "fieldtype": "Section Break",
+   "label": "Discount"
+  },
+  {
+   "fieldname": "discount_type",
+   "fieldtype": "Select",
+   "label": "Discount Type",
+   "options": "\nPercentage\nAmount"
+  },
+  {
+   "depends_on": "discount_type",
+   "fieldname": "discount_value",
+   "fieldtype": "Float",
+   "label": "Discount Value",
+   "precision": "2"
+  },
+  {
+   "fieldname": "column_break_discount",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "discount_type",
+   "fieldname": "discount_amount",
+   "fieldtype": "Currency",
+   "label": "Discount Amount",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
    "fieldname": "total_amount",
    "fieldtype": "Currency",
    "label": "Total Amount",
@@ -236,6 +279,13 @@
    "fieldname": "swapped_on",
    "fieldtype": "Datetime",
    "label": "Swapped On"
+  },
+  {
+   "default": "0",
+   "description": "Check this for imported records to suppress all email notifications",
+   "fieldname": "is_external",
+   "fieldtype": "Check",
+   "label": "Is External Import"
   }
  ],
  "index_web_pages_for_search": 1,

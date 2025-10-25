@@ -107,7 +107,10 @@ class PaymentRequest(Document):
             fees_result = self.calculate_fees_from_config()
             self.fees = fees_result.get("total_fee", 0)
             self.total_amount = flt(self.amount) + flt(self.fees)
-    
+
+    def after_insert(self):
+        send_payment_approval_email(self)
+
     def set_customer_info(self):
         """Set customer and customer name from cart or email"""
         try:
@@ -244,20 +247,44 @@ class PaymentRequest(Document):
     
     def send_failure_notification(self):
         """Send notification when payment fails"""
-        if self.customer_email:
-            try:
-                frappe.sendmail(
-                    recipients=[self.customer_email],
-                    subject=f"Payment Failed - {self.title}",
-                    message=f"""
-                    <p>Your payment request has failed.</p>
-                    <p>Payment ID: {self.name}</p>
-                    <p>Amount: ${self.total_amount}</p>
-                    <p>Please contact support for assistance.</p>
-                    """
+        if not self.customer_email:
+            return
+            
+        try:
+            # Import email template utility
+            from rockettradeline.utils.email_templates import send_email_from_template
+            
+            # Prepare template context with correct parameters for Payment Failed template
+            context = {
+                'full_name': getattr(self, 'customer_name', 'Customer'),
+                'order_number': self.name,  # Payment Request ID as order number
+                'amount': f"{self.total_amount:.2f}" if self.total_amount else "0.00",
+                'payment_method': self.payment_method or 'N/A',
+                'failure_reason': getattr(self, 'rejection_reason', None) or getattr(self, 'error_message', None) or 'Payment processing failed. Please try again or contact support.',
+                'retry_payment_link': f"https://www.rockettradeline.com/buyer/payments/requests/details?request_id={self.name}",
+                'support_email': 'info@rockettradeline.com'
+            }
+            
+            # Send email using Email Template Custom
+            result = send_email_from_template(
+                template_name='Payment Failed',
+                recipients=[self.customer_email],
+                context=context
+            )
+            
+            if result.get('success'):
+                frappe.logger().info(f"Payment failure notification sent to {self.customer_email} for payment {self.name}")
+                return True
+            else:
+                frappe.log_error(
+                    f"Failed to send payment failure email to {self.customer_email}: {result.get('error')}", 
+                    "Payment Failure Email Error"
                 )
-            except Exception as e:
-                frappe.log_error(f"Failed to send payment failure email: {str(e)}")
+                return False
+                
+        except Exception as e:
+            frappe.log_error(f"Error sending payment failure email for {self.name}: {str(e)}", "Payment Failure Email Error")
+            return False
     
     def handle_expiry(self):
         """Handle payment request expiry"""
@@ -538,3 +565,48 @@ def handle_expired_payments():
             frappe.log_error(f"Failed to expire payment request {payment.name}: {str(e)}")
 
 
+def send_payment_approval_email(payment_request_doc):
+    """Send email notification to customer when payment is approved"""
+    try:
+        # Import email template utility
+        from rockettradeline.utils.email_templates import send_email_from_template
+        
+        # Get cart details
+        cart = frappe.get_doc("Tradeline Cart", payment_request_doc.cart_id)
+        cart_items = cart.get("items", [])
+        
+        # Format tradeline details HTML
+        tradeline_details = ""
+        if cart_items:
+            tradeline_details = "<h4 style='color: #374151; margin: 20px 0 15px 0;'>Your Tradelines:</h4><ul style='margin: 0 0 20px 20px; padding: 0;'>"
+            for item in cart_items:
+                tradeline_details += f"<li style='margin: 5px 0; color: #6b7280;'>{item.tradeline_name} - ${item.amount:.2f}</li>"
+            tradeline_details += "</ul>"
+        
+        # Prepare template context
+        context = {
+            'customer_name': getattr(payment_request_doc, 'customer_name', 'Customer'),
+            'payment_request_id': payment_request_doc.name,
+            'payment_method': payment_request_doc.payment_method,
+            'total_amount': f"{payment_request_doc.total_amount:.2f}",
+            'transaction_id': getattr(payment_request_doc, 'transaction_id', 'N/A') or 'N/A',
+            'approved_at': str(getattr(payment_request_doc, 'approved_at', payment_request_doc.creation)),
+            'tradeline_details': tradeline_details,
+            'portal_link': 'https://rockettradeline.com'
+        }
+        
+        # check if customer linked to the payment request has accocunt_manager, if has account manager let the email be sent to account manager
+        customer = frappe.get_doc("Customer", payment_request_doc.customer)
+        if customer.account_manager:
+            # Send email to account manager
+            result = send_email_from_template('Broker Action Required', customer.account_manager, context)
+            result = send_email_from_template('Broker Action Required', payment_request_doc.customer_email, context)
+        # else:
+        #     print("IJ requested me to do nothing")
+        #     # Send email using Email Template Custom
+        #     # result = send_email_from_template('Payment Approval', payment_request_doc.customer_email, context)
+
+        return True
+        
+    except Exception as e:
+        frappe.log_error(f"Payment approval email error: {str(e)}")

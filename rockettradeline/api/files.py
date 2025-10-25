@@ -95,52 +95,57 @@ def create_or_get_folder(folder_name, parent_folder="Home"):
         return parent_folder
 def process_faq_import(file_content, filename):
     """
-    Process FAQ import from file content
+    Process FAQ import from file content (CSV only - no pandas dependency)
     Expected columns: question, answer, category (optional), sort_order (optional), is_published (optional)
     """
     try:
-        import pandas as pd
+        import csv
         import io
         
-        # Validate file type
+        # Validate file type (only CSV to avoid pandas dependency)
         filename_lower = filename.lower()
-        if not (filename_lower.endswith('.csv') or filename_lower.endswith('.xlsx') or filename_lower.endswith('.xls')):
+        if not filename_lower.endswith('.csv'):
             return {
                 "success": False,
-                "message": "Invalid file format. Please upload CSV (.csv) or Excel (.xlsx, .xls) file."
+                "message": "Invalid file format. Please upload CSV (.csv) file only. Excel files require pandas library installation."
             }
         
-        # Read file content based on type
+        # Read CSV file content
         try:
-            if filename_lower.endswith('.csv'):
-                # Read CSV file
-                df = pd.read_csv(io.BytesIO(file_content))
-            else:
-                # Read Excel file
-                df = pd.read_excel(io.BytesIO(file_content))
+            # Try to decode as UTF-8 first
+            try:
+                file_text = file_content.decode('utf-8')
+            except UnicodeDecodeError:
+                # Try UTF-8 with BOM
+                file_text = file_content.decode('utf-8-sig')
+            
+            csv_reader = csv.DictReader(io.StringIO(file_text))
+            rows = list(csv_reader)
         except Exception as e:
             return {
                 "success": False,
-                "message": f"Error reading file: {str(e)}"
+                "message": f"Error reading CSV file. Please ensure it's properly formatted UTF-8 CSV: {str(e)}"
             }
+        
+        if not rows:
+            return {
+                "success": False,
+                "message": "The CSV file appears to be empty or has no data rows."
+            }
+        
+        # Get column names from first row
+        columns = list(rows[0].keys()) if rows else []
         
         # Validate required columns
         required_columns = ['question', 'answer']
-        missing_columns = [col for col in required_columns if col not in df.columns]
+        missing_columns = [col for col in required_columns if col not in columns]
         
         if missing_columns:
+            available_columns = ', '.join(columns)
             return {
                 "success": False,
-                "message": f"Missing required columns: {', '.join(missing_columns)}. Required columns are: question, answer"
+                "message": f"Missing required columns: {', '.join(missing_columns)}. Required columns are: question, answer. Available columns: {available_columns}"
             }
-        
-        # Optional columns with defaults
-        if 'category' not in df.columns:
-            df['category'] = None
-        if 'sort_order' not in df.columns:
-            df['sort_order'] = 0
-        if 'is_published' not in df.columns:
-            df['is_published'] = 1
         
         # Process each row
         results = {
@@ -150,14 +155,18 @@ def process_faq_import(file_content, filename):
             "skipped": []
         }
         
-        total_rows = len(df)
+        total_rows = len(rows)
         
-        for index, row in df.iterrows():
+        for index, row in enumerate(rows):
             try:
                 # Clean and validate data
-                question = str(row['question']).strip() if pd.notna(row['question']) else ""
-                answer = str(row['answer']).strip() if pd.notna(row['answer']) else ""
-                category = str(row['category']).strip() if pd.notna(row['category']) and row['category'] else None
+                question = str(row.get('question', '')).strip()
+                answer = str(row.get('answer', '')).strip()
+                category = str(row.get('category', '')).strip() if row.get('category') else None
+                
+                # Remove empty category
+                if category == '' or category == 'None':
+                    category = None
                 
                 # Validate required fields
                 if not question or not answer:
@@ -170,13 +179,16 @@ def process_faq_import(file_content, filename):
                 
                 # Parse optional fields
                 try:
-                    sort_order = int(row['sort_order']) if pd.notna(row['sort_order']) else 0
+                    sort_order = int(row.get('sort_order', 0)) if row.get('sort_order') and str(row.get('sort_order')).strip() else 0
                 except (ValueError, TypeError):
                     sort_order = 0
                 
                 try:
-                    is_published = int(row['is_published']) if pd.notna(row['is_published']) else 1
-                    is_published = 1 if is_published else 0
+                    is_published_value = row.get('is_published', '1')
+                    if str(is_published_value).lower() in ['false', '0', 'no', 'n']:
+                        is_published = 0
+                    else:
+                        is_published = 1
                 except (ValueError, TypeError):
                     is_published = 1
                 
@@ -261,11 +273,6 @@ def process_faq_import(file_content, filename):
             "import_type": "faq"
         }
         
-    except ImportError:
-        return {
-            "success": False,
-            "message": "pandas library not available. Please install pandas to use FAQ import functionality."
-        }
     except Exception as e:
         frappe.log_error(f"FAQ import error: {str(e)}", "FAQ Import")
         return {
@@ -284,6 +291,7 @@ def upload_file():
     """
     Upload a file to the system
     Supports both form data and base64 uploads
+    Can accept multiple files for proof_of_enrollment
     """
     try:
         current_user = get_authenticated_user()
@@ -301,79 +309,71 @@ def upload_file():
                 "message": "Permission denied: Cannot upload files"
             }
         
-        # Handle file upload from form data
-        if files and 'file' in files:
-            uploaded_file = files['file']
+        # Get common form data
+        is_private = int(form_data.get('is_private', 1))  # Default to private
+        provided_file_name = form_data.get('file_name')
+        doctype = form_data.get('doctype') 
+        docname = form_data.get('docname')
+        
+        # Check if user is trying to upload public file (only admin allowed)
+        if not is_private and not is_administrator(current_user):
+            return {
+                "success": False,
+                "message": "Only administrators can upload public files"
+            }
+        
+        # Validate file_name if provided
+        allowed_file_names = get_allowed_file_names()
+        if provided_file_name and provided_file_name not in allowed_file_names:
+            return {
+                "success": False,
+                "message": f"Invalid file_name. Only allowed: {', '.join(allowed_file_names)}"
+            }
+        
+        # Handle FAQ import if file_name is "faq_import"
+        if provided_file_name == 'faq_import':
+            # Check if user has admin permissions for FAQ import
+            if not is_administrator(current_user):
+                return {
+                    "success": False,
+                    "message": "Access denied. Admin privileges required for FAQ import."
+                }
             
-            if uploaded_file.filename == '':
+            # Process FAQ import instead of regular file upload
+            if files and 'file' in files:
+                uploaded_file = files['file']
+                uploaded_file.seek(0)  # Reset file pointer
+                file_content = uploaded_file.read()
+                return process_faq_import(file_content, uploaded_file.filename)
+        
+        # Handle file upload from form data
+        if files:
+            # Collect all files - support both single 'file' and multiple 'file' fields
+            uploaded_files = []
+            if 'file' in files:
+                # Could be a single file or list of files
+                file_input = files.getlist('file')
+                if file_input:
+                    uploaded_files = file_input
+                else:
+                    uploaded_files = [files['file']]
+            
+            # For proof_of_enrollment, accept up to 2 files
+            if provided_file_name == 'proof_of_enrollment' and len(uploaded_files) > 2:
+                return {
+                    "success": False,
+                    "message": "Maximum 2 files allowed for proof_of_enrollment"
+                }
+            
+            if not uploaded_files:
                 return {
                     "success": False,
                     "message": "No file selected"
                 }
             
-            # Check if user is trying to upload public file (only admin allowed)
-            is_private = int(form_data.get('is_private', 1))  # Default to private
-            if not is_private and not is_administrator(current_user):
-                return {
-                    "success": False,
-                    "message": "Only administrators can upload public files"
-                }
-            
-            # Validate file_name if provided
-            allowed_file_names = get_allowed_file_names()
-            provided_file_name = form_data.get('file_name')
-            if provided_file_name and provided_file_name not in allowed_file_names:
-                return {
-                    "success": False,
-                    "message": f"Invalid file_name. Only allowed: {', '.join(allowed_file_names)}"
-                }
-            
-            # Handle FAQ import if file_name is "faq_import"
-            if provided_file_name == 'faq_import':
-                # Check if user has admin permissions for FAQ import
-                if not is_administrator(current_user):
-                    return {
-                        "success": False,
-                        "message": "Access denied. Admin privileges required for FAQ import."
-                    }
-                
-                # Process FAQ import instead of regular file upload
-                uploaded_file.seek(0)  # Reset file pointer
-                file_content = uploaded_file.read()
-                return process_faq_import(file_content, uploaded_file.filename)
-            
-            # Validate file
-            validation_result = validate_file(uploaded_file)
-            if not validation_result["valid"]:
-                return {
-                    "success": False,
-                    "message": validation_result["message"]
-                }
-            
-            # Generate custom filename if doctype and docname are provided
-            # Get file extension from original file
-            original_ext = os.path.splitext(uploaded_file.filename)[1]
-            # Use file_name from form data or fallback to original filename
-            base_filename = form_data.get('file_name', uploaded_file.filename)
-            base_filename = secure_filename(base_filename)
-            
-            # Ensure the file has the correct extension
-            if not base_filename.endswith(original_ext):
-                name_without_ext = os.path.splitext(base_filename)[0]
-                base_filename = f"{name_without_ext}{original_ext}"
-            
-            doctype = form_data.get('doctype') 
-            docname = form_data.get('docname') 
-            
             if not doctype or not docname and is_private:
                 docname = frappe.get_value("Customer", {"email_id": current_user}, "name")
                 doctype = "Customer"
-            if doctype and docname:
-                # Create custom filename: doctype_docname_filename
-                custom_filename = f"{doctype}_{docname}_{base_filename}"
-                custom_filename = secure_filename(custom_filename)
-            else:
-                custom_filename = base_filename
             
             # Determine folder for private files based on allowed field name
             folder = form_data.get('folder', 'Home')
@@ -382,27 +382,95 @@ def upload_file():
                 folder = create_or_get_folder(provided_file_name, "Home")
                 frappe.logger().info(f"Using folder '{folder}' for private file '{provided_file_name}'")
             
-            # Save file using Frappe's file manager
-            file_doc = save_file(
-                fname=custom_filename,
-                content=uploaded_file.read(),
-                dt=doctype,
-                dn=docname,
-                folder=folder,
-                is_private=is_private
-            )
+            # Process each file
+            uploaded_file_docs = []
+            for uploaded_file in uploaded_files:
+                if uploaded_file.filename == '':
+                    continue
+                
+                # Validate file
+                validation_result = validate_file(uploaded_file)
+                if not validation_result["valid"]:
+                    return {
+                        "success": False,
+                        "message": validation_result["message"]
+                    }
+                
+                # Generate custom filename if doctype and docname are provided
+                # Get file extension from original file
+                original_ext = os.path.splitext(uploaded_file.filename)[1]
+                # Use file_name from form data or fallback to original filename
+                base_filename = form_data.get('file_name', uploaded_file.filename)
+                base_filename = secure_filename(base_filename)
+                
+                # Ensure the file has the correct extension
+                if not base_filename.endswith(original_ext):
+                    name_without_ext = os.path.splitext(base_filename)[0]
+                    base_filename = f"{name_without_ext}{original_ext}"
+                
+                if doctype and docname:
+                    # Create custom filename: doctype_docname_filename
+                    # Add index for multiple files
+                    if len(uploaded_files) > 1:
+                        index = uploaded_files.index(uploaded_file) + 1
+                        name_without_ext = os.path.splitext(base_filename)[0]
+                        custom_filename = f"{doctype}_{docname}_{name_without_ext}_{index}{original_ext}"
+                    else:
+                        custom_filename = f"{doctype}_{docname}_{base_filename}"
+                    custom_filename = secure_filename(custom_filename)
+                else:
+                    custom_filename = base_filename
+                
+                # Save file using Frappe's file manager
+                file_doc = save_file(
+                    fname=custom_filename,
+                    content=uploaded_file.read(),
+                    dt=doctype,
+                    dn=docname,
+                    folder=folder,
+                    is_private=is_private
+                )
+                
+                uploaded_file_docs.append({
+                    "name": file_doc.name,
+                    "file_name": file_doc.file_name,
+                    "file_url": file_doc.file_url,
+                    "file_size": file_doc.file_size,
+                    "is_private": file_doc.is_private,
+                    "content_hash": file_doc.content_hash
+                })
             
-            # Handle proof_of_enrollment automation for Client Tradeline
-            provided_file_name = form_data.get('file_name')
-            if provided_file_name == 'proof_of_enrollment' and doctype == 'Client Tradelines' and docname:
+            # Handle proof_of_enrollment automation for Client Tradeline (process once after all files uploaded)
+            if provided_file_name == 'proof_of_enrollment' and doctype == 'Client Tradelines' and docname and uploaded_file_docs:
                 try:
                     # Get current datetime
                     completion_date = datetime.now()
-                    # Calculate expiry date (61 days after completion)
-                    expiry_date = completion_date + timedelta(days=61)
+                    
+                    # Get the Client Tradeline document to access tradeline
+                    client_tradeline_doc = frappe.get_doc('Client Tradelines', docname)
+                    
+                    # Get tradeline closing date
+                    tradeline_doc = frappe.get_doc('Tradeline', client_tradeline_doc.tradeline)
+                    closing_date = tradeline_doc.closing_date or 15
+                    
+                    # Calculate the next closing date
+                    today = frappe.utils.getdate(frappe.utils.today())
+                    current_day = today.day
+                    
+                    from datetime import date
+                    if current_day < closing_date:
+                        # Next closing date is this month
+                        next_closing_date = date(today.year, today.month, closing_date)
+                    else:
+                        # Next closing date is next month
+                        next_month = frappe.utils.add_months(today, 1)
+                        next_month_date = frappe.utils.getdate(next_month)
+                        next_closing_date = date(next_month_date.year, next_month_date.month, closing_date)
+                    
+                    # Expiry date is 61 days after the next closing date (2 months after closing)
+                    expiry_date = frappe.utils.add_days(next_closing_date, 61)
                     
                     # Update the Client Tradeline document
-                    client_tradeline_doc = frappe.get_doc('Client Tradelines', docname)
                     client_tradeline_doc.completion_date = completion_date
                     client_tradeline_doc.expiry_date = expiry_date
                     client_tradeline_doc.status = "Active"
@@ -414,7 +482,7 @@ def upload_file():
                     frappe.log_error(f"Error updating Client Tradeline {docname}: {str(e)}", "Proof of Enrollment Automation")
             
             # Handle proof_of_refund automation for Client Tradeline
-            if provided_file_name == 'proof_of_refund' and doctype == 'Client Tradelines' and docname:
+            if provided_file_name == 'proof_of_refund' and doctype == 'Client Tradelines' and docname and uploaded_file_docs:
                 try:
                     # Get the Client Tradeline document
                     client_tradeline_doc = frappe.get_doc('Client Tradelines', docname)
@@ -437,18 +505,19 @@ def upload_file():
                 except Exception as e:
                     frappe.log_error(f"Error processing proof_of_refund for Client Tradeline {docname}: {str(e)}", "Proof of Refund Automation")
             
-            return {
-                "success": True,
-                "message": "File uploaded successfully",
-                "file": {
-                    "name": file_doc.name,
-                    "file_name": file_doc.file_name,
-                    "file_url": file_doc.file_url,
-                    "file_size": file_doc.file_size,
-                    "is_private": file_doc.is_private,
-                    "content_hash": file_doc.content_hash
+            # Return response based on number of files uploaded
+            if len(uploaded_file_docs) == 1:
+                return {
+                    "success": True,
+                    "message": "File uploaded successfully",
+                    "file": uploaded_file_docs[0]
                 }
-            }
+            else:
+                return {
+                    "success": True,
+                    "message": f"{len(uploaded_file_docs)} files uploaded successfully",
+                    "files": uploaded_file_docs
+                }
         
         # Handle base64 upload
         elif form_data.get('file_content') and form_data.get('filename'):
@@ -556,21 +625,47 @@ def upload_file():
 
             # Handle proof_of_enrollment automation for Client Tradeline
             if provided_file_name == 'proof_of_enrollment' and doctype == 'Client Tradelines' and docname:
+                
                 try:
                     # Get current datetime
                     completion_date = datetime.now()
-                    # Calculate expiry date (61 days after completion)
-                    expiry_date = completion_date + timedelta(days=61)
+                    
+                    # Get the Client Tradeline document to access tradeline
+                    client_tradeline_doc = frappe.get_doc('Client Tradelines', docname)
+                    
+                    # Get tradeline closing date
+                    tradeline_doc = frappe.get_doc('Tradeline', client_tradeline_doc.tradeline)
+                    closing_date = tradeline_doc.closing_date or 15
+                    
+                    # Calculate the next closing date
+                    # closing_date is the actual day number (e.g., 5, 10, 15)
+                    # If today's day is less than closing_date, next closing is this month
+                    # If today's day is >= closing_date, next closing is next month
+                    today = frappe.utils.getdate(frappe.utils.today())
+                    current_day = today.day
+                    
+                    from datetime import date
+                    if current_day < closing_date:
+                        # Next closing date is this month
+                        next_closing_date = date(today.year, today.month, closing_date)
+                    else:
+                        # Next closing date is next month
+                        next_month = frappe.utils.add_months(today, 1)
+                        next_month_date = frappe.utils.getdate(next_month)
+                        next_closing_date = date(next_month_date.year, next_month_date.month, closing_date)
+                    
+                    # Expiry date is 61 days after the next closing date (2 months after closing)
+                    expiry_date = frappe.utils.add_days(next_closing_date, 69)
                     
                     # Update the Client Tradeline document
-                    client_tradeline_doc = frappe.get_doc('Client Tradelines', docname)
                     client_tradeline_doc.completion_date = completion_date
                     client_tradeline_doc.expiry_date = expiry_date
                     client_tradeline_doc.save()
                     
-                    frappe.db.commit()
+                    # frappe.db.commit()
                     
                 except Exception as e:
+                    frappe.throw("Error 2 {}".format(str(e)))
                     frappe.log_error(f"Error updating Client Tradeline {docname}: {str(e)}", "Proof of Enrollment Automation")
             
             # Handle proof_of_refund automation for Client Tradeline
@@ -735,11 +830,35 @@ def upload_multiple_files():
                     try:
                         # Get current datetime
                         completion_date = datetime.now()
-                        # Calculate expiry date (61 days after completion)
-                        expiry_date = completion_date + timedelta(days=61)
+                        
+                        # Get the Client Tradeline document to access tradeline
+                        client_tradeline_doc = frappe.get_doc('Client Tradelines', docname)
+                        
+                        # Get tradeline closing date
+                        tradeline_doc = frappe.get_doc('Tradeline', client_tradeline_doc.tradeline)
+                        closing_date = tradeline_doc.closing_date or 15
+                        
+                        # Calculate the next closing date
+                        # closing_date is the actual day number (e.g., 5, 10, 15)
+                        # If today's day is less than closing_date, next closing is this month
+                        # If today's day is >= closing_date, next closing is next month
+                        today = frappe.utils.getdate(frappe.utils.today())
+                        current_day = today.day
+                        
+                        from datetime import date
+                        if current_day < closing_date:
+                            # Next closing date is this month
+                            next_closing_date = date(today.year, today.month, closing_date)
+                        else:
+                            # Next closing date is next month
+                            next_month = frappe.utils.add_months(today, 1)
+                            next_month_date = frappe.utils.getdate(next_month)
+                            next_closing_date = date(next_month_date.year, next_month_date.month, closing_date)
+                        
+                        # Expiry date is 61 days after the next closing date (2 months after closing)
+                        expiry_date = frappe.utils.add_days(next_closing_date, 61)
                         
                         # Update the Client Tradeline document
-                        client_tradeline_doc = frappe.get_doc('Client Tradelines', docname)
                         client_tradeline_doc.completion_date = completion_date
                         client_tradeline_doc.expiry_date = expiry_date
                         client_tradeline_doc.save()
@@ -991,6 +1110,14 @@ def get_files_list(doctype=None, docname=None, folder=None, is_private=None,
     Get list of files with filtering options
     """
     try:
+        # Convert limit and start to integers with validation
+        try:
+            limit = int(limit) if limit else 50
+            start = int(start) if start else 0
+        except (ValueError, TypeError):
+            frappe.local.response.http_status_code = 400
+            return {"success": False, "message": "Invalid pagination parameters. 'limit' and 'start' must be valid integers."}
+        
         current_user = get_authenticated_user()
         if not current_user:
             return {"success": False, "message": "Authentication required"}
@@ -1034,12 +1161,24 @@ def get_files_list(doctype=None, docname=None, folder=None, is_private=None,
         # Get total count for pagination
         total_count = frappe.db.count("File", filters)
         
+        # Calculate pagination
+        current_page = (start // limit) + 1 if limit > 0 else 1
+        total_pages = (total_count + limit - 1) // limit if limit > 0 else 1
+        has_next = (start + limit) < total_count
+        has_previous = start > 0
+        
         return {
             "success": True,
             "files": files,
-            "total_count": total_count,
-            "limit": limit,
-            "start": start
+            "pagination": {
+                "current_page": current_page,
+                "total_pages": total_pages,
+                "limit": limit,
+                "start": start,
+                "has_next": has_next,
+                "has_previous": has_previous,
+                "total_records": total_count
+            }
         }
         
     except Exception as e:

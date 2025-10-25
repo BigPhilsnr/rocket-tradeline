@@ -33,7 +33,7 @@ website_context = {
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/rockettradeline/css/rockettradeline.css"
-# app_include_js = "/assets/rockettradeline/js/rockettradeline.js"
+app_include_js = "/assets/rockettradeline/js/rockettradeline.js"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/rockettradeline/css/rockettradeline.css"
@@ -71,6 +71,40 @@ website_context = {
 # 	"Role": "home_page"
 # }
 
+# Default workspace for users
+# default_workspace = "Rocket Tradeline"
+
+# Workspaces
+# ----------
+# workspaces = {
+# 	"Rocket Tradeline": "rockettradeline.rockettradeline.workspace.rockettradeline.rockettradeline"
+# }
+
+# Hide standard workspaces
+# -------------------------
+# Hide all standard Frappe/ERPNext workspaces to show only Rocket Tradeline
+# hide_workspaces = [
+# 	"Accounting",
+# 	"Selling",
+# 	"Buying",
+# 	"Stock",
+# 	"Assets",
+# 	"Projects",
+# 	"CRM",
+# 	"Support",
+# 	"HR",
+# 	"Payroll",
+# 	"Quality",
+# 	"Manufacturing",
+# 	"Website",
+# 	"Utilities",
+# 	"Settings",
+# 	"Integrations",
+# 	"Automation",
+# 	"Build",
+# 	"Tools"
+# ]
+
 # Generators
 # ----------
 
@@ -96,7 +130,8 @@ after_install = "rockettradeline.setup.after_install"
 # --------
 patches = [
     "rockettradeline.patches.create_customer_additional_fields",
-    "rockettradeline.patches.add_customer_flags"
+    "rockettradeline.patches.add_customer_flags",
+    # "rockettradeline.patches.hide_standard_workspaces"
 ]
 
 # Uninstallation
@@ -169,9 +204,12 @@ scheduler_events = {
 			"rockettradeline.tasks.process_email_queue"
 		]
 	},
-	# "daily": [
-	# 	"rockettradeline.tasks.daily"
-	# ],
+	"daily": [
+		"rockettradeline.tasks.check_and_send_closing_date_notifications",
+		"rockettradeline.tasks.check_and_send_expiry_reminders",
+		"rockettradeline.tasks.check_and_resend_pending_au_emails",
+		"rockettradeline.tasks.check_and_send_cardholder_removal_notifications"
+	],
 	"hourly": [
 		"rockettradeline.tasks.check_and_expire_client_tradelines"
 	],
@@ -252,6 +290,12 @@ scheduler_events = {
 # auth_hooks = [
 # 	"rockettradeline.auth.validate"
 # ]
+
+# Ignore CSRF for OAuth callbacks
+# --------------------------------
+ignore_csrf = [
+    "frappe.integrations.doctype.connected_app.connected_app.callback"
+]
 
 # Automatically update python controller files with type annotations for this app.
 # export_python_type_annotations = True

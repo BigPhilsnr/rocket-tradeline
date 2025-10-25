@@ -88,23 +88,24 @@ def submit_feedback(question_1_why_buying, question_2_importance, question_3_cre
             ],
             'question_2_importance': [
                 "To access lower interest rates",
-                "To access higher credit limits",
-                "To boost your credit score",
-                "Qualify to buy a house",
-                "Qualify to buy a Car"
+                "To reduce credit utilization rate",
+                "To rebuild credit after financial setbacks",
+                "To strengthen my credit profile for future opportunities"
             ],
             'question_3_credit_score': [
-                "Bad credit: 300 to 579",
-                "Fair credit: 630 to 689",
-                "Good credit: 690 to 719",
-                "Excellent credit: 720 to 850"
+                "Poor: 300–579",
+                "Fair: 580–669",
+                "Good: 670–739",
+                "Very Good: 740–799",
+                "Excellent: 800–850"
             ],
             'question_4_derogatory_marks': [
-                "​​Late payments that are around 30 days or more past due",
-                "Charge-offs",
+                "Late payments",
+                "Collections or Charge-offs",
                 "Foreclosures",
                 "Bankruptcy filings",
-                "Repossessions"
+                "Repossessions",
+                "None of the above"
             ]
         }
         
@@ -456,8 +457,8 @@ def get_feedback_form_config():
             "questions": [
                 {
                     "id": "question_1_why_buying",
-                    "title": "Importance of your Credit Score",
-                    "description": "Your credit score affects many key areas of life today—from determining if you qualify for a loan or credit card to influencing the interest rates you pay. It can also impact the cost of insurance premiums for your home or car, and much more.",
+                    "title": "Importance of your Credit",
+                    "description": "Your credit affects many key areas of life today - from determining if you qualify for a loan or credit card to influencing the interest rates you pay. What is your main reason for wanting to improve or maintain your credit?",
                     "options": [
                         {
                             "value": "I want to buy a home or property",
@@ -491,20 +492,16 @@ def get_feedback_form_config():
                             "label": "To access lower interest rates"
                         },
                         {
-                            "value": "To access higher credit limits",
-                            "label": "To access higher credit limits"
+                            "value": "To reduce credit utilization rate",
+                            "label": "To reduce credit utilization rate"
                         },
                         {
-                            "value": "To boost your credit score",
-                            "label": "To boost your credit score"
+                            "value": "To rebuild credit after financial setbacks",
+                            "label": "To rebuild credit after financial setbacks"
                         },
                         {
-                            "value": "Qualify to buy a house",
-                            "label": "Qualify to buy a house"
-                        },
-                        {
-                            "value": "Qualify to buy a Car",
-                            "label": "Qualify to buy a Car"
+                            "value": "To strengthen my credit profile for future opportunities",
+                            "label": "To strengthen my credit profile for future opportunities"
                         }
                     ]
                 },
@@ -514,20 +511,24 @@ def get_feedback_form_config():
                     "description": "What is your current credit score?",
                     "options": [
                         {
-                            "value": "Bad credit: 300 to 579",
-                            "label": "Bad credit: 300 to 579"
+                            "value": "Poor: 300–579",
+                            "label": "Poor: 300–579"
                         },
                         {
-                            "value": "Fair credit: 630 to 689",
-                            "label": "Fair credit: 630 to 689"
+                            "value": "Fair: 580–669",
+                            "label": "Fair: 580–669"
                         },
                         {
-                            "value": "Good credit: 690 to 719",
-                            "label": "Good credit: 690 to 719"
+                            "value": "Good: 670–739",
+                            "label": "Good: 670–739"
                         },
                         {
-                            "value": "Excellent credit: 720 to 850",
-                            "label": "Excellent credit: 720 to 850"
+                            "value": "Very Good: 740–799",
+                            "label": "Very Good: 740–799"
+                        },
+                        {
+                            "value": "Excellent: 800–850",
+                            "label": "Excellent: 800–850"
                         }
                     ]
                 },
@@ -537,12 +538,12 @@ def get_feedback_form_config():
                     "description": "Do you have any of the following derogatory marks?",
                     "options": [
                         {
-                            "value": "​​Late payments that are around 30 days or more past due",
-                            "label": "​​Late payments that are around 30 days or more past due"
+                            "value": "Late payments",
+                            "label": "Late payments"
                         },
                         {
-                            "value": "Charge-offs",
-                            "label": "Charge-offs"
+                            "value": "Collections or Charge-offs",
+                            "label": "Collections or Charge-offs"
                         },
                         {
                             "value": "Foreclosures",
@@ -555,6 +556,10 @@ def get_feedback_form_config():
                         {
                             "value": "Repossessions",
                             "label": "Repossessions"
+                        },
+                        {
+                            "value": "None of the above",
+                            "label": "None of the above"
                         }
                     ]
                 }

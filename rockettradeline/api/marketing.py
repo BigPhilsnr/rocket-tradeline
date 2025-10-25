@@ -3,6 +3,7 @@ from frappe import _
 from frappe.utils import validate_email_address, now_datetime
 from .utils import is_administrator
 from .auth import jwt_required, get_authenticated_user, get_email_header, get_email_footer
+from rockettradeline.utils.email_templates import send_email_from_template
 
 # Email Group Management APIs
 
@@ -590,4 +591,68 @@ def create_email_group(title, description=None):
         return {
             "success": False,
             "message": f"Failed to create email group: {str(e)}"
+        }
+
+def send_welcome_email(email, full_name=None, support_email="info@rockettradeline.com", dashboard_link="www.rockettradeline.com"):
+    """
+    Send welcome email to user using the Welcome Email template
+    
+    Args:
+        email (str): Recipient's email address
+        full_name (str): Recipient's full name (optional)
+        support_email (str): Support email address (default: info@rockettradeline.com)
+        dashboard_link (str): Dashboard link (default: www.rockettradeline.com)
+    
+    Returns:
+        dict: Success/failure status with message
+    """
+    try:
+        # Validate email format
+        if not email or not validate_email_address(email):
+            return {
+                "success": False,
+                "message": "Please provide a valid email address"
+            }
+        
+        # Prepare greeting name
+        if not full_name:
+            full_name = email.split('@')[0].title()
+        
+        # Prepare context for the email template
+        context = {
+            'full_name': full_name,
+            'support_email': support_email,
+            'dashboard_link': dashboard_link
+        }
+        
+        # Send the email using the Welcome Email template
+        result = send_email_from_template(
+            template_name='Welcome Email',
+            recipients=[email],
+            context=context
+        )
+        
+        if result.get('success'):
+            frappe.logger().info(f"Welcome email sent successfully to {email}")
+            return {
+                "success": True,
+                "message": f"Welcome email sent successfully to {email}",
+                "email": email,
+                "full_name": full_name
+            }
+        else:
+            frappe.log_error(
+                f"Failed to send welcome email to {email}: {result.get('error')}", 
+                "Welcome Email Error"
+            )
+            return {
+                "success": False,
+                "message": f"Failed to send welcome email: {result.get('error', 'Unknown error')}"
+            }
+            
+    except Exception as e:
+        frappe.log_error(f"Welcome email error for {email}: {str(e)}", "Welcome Email Error")
+        return {
+            "success": False,
+            "message": f"Welcome email failed: {str(e)}"
         }

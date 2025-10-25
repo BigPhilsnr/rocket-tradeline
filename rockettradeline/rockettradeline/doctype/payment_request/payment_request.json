@@ -43,7 +43,8 @@
   "approval_status",
   "approved_by",
   "approved_at",
-  "rejection_reason"
+  "rejection_reason",
+  "is_external"
  ],
  "fields": [
   {
@@ -283,6 +284,13 @@
    "fieldname": "rejection_reason",
    "fieldtype": "Small Text",
    "label": "Rejection Reason"
+  },
+  {
+   "default": "0",
+   "description": "Check this for imported records to suppress all email notifications",
+   "fieldname": "is_external",
+   "fieldtype": "Check",
+   "label": "Is External Import"
   }
  ],
  "index_web_pages_for_search": 1,

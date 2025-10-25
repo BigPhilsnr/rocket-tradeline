@@ -29,6 +29,12 @@ def get_client_tradelines(status=None, limit=20, start=0, customer=None, tradeli
                 filters={"email_id": current_user}, 
                 fields=["name", "customer_name"])
             
+            customer_record2 = frappe.get_all("Customer", 
+            filters= { "account_manager": current_user}, 
+            fields=["name", "customer_name"])
+            customer_records += customer_record2
+     
+            
             if not customer_records:
                 return {
                     "success": True,
@@ -110,6 +116,7 @@ def get_client_tradelines(status=None, limit=20, start=0, customer=None, tradeli
                 tb.image as bank_logo,
                 t.credit_limit,
                 t.age_year,
+                t.commission,
                 t.age_month,
                 t.closing_date
             FROM `tabClient Tradelines` ct
@@ -155,6 +162,7 @@ def get_client_tradelines(status=None, limit=20, start=0, customer=None, tradeli
                 "creation": tradeline.creation,
                 "modified": tradeline.modified,
                 "commission_paid": tradeline.commission_paid,
+                "commission": tradeline.commission,
                 "refund_username": tradeline.refund_username,
                 "refund_security_question": tradeline.refund_security_question,
                 "refund_security_answer": tradeline.refund_security_answer,
@@ -166,13 +174,24 @@ def get_client_tradelines(status=None, limit=20, start=0, customer=None, tradeli
             }
             formatted_tradelines.append(formatted_tradeline)
         
+        # Calculate pagination
+        current_page = (int(start) // int(limit)) + 1 if int(limit) > 0 else 1
+        total_pages = (total + int(limit) - 1) // int(limit) if int(limit) > 0 else 1
+        has_next = (int(start) + int(limit)) < total
+        has_previous = int(start) > 0
+        
         return {
             "success": True,
             "data": formatted_tradelines,
-            "total": total,
-            "limit": int(limit),
-            "start": int(start),
-            "has_more": (int(start) + len(formatted_tradelines)) < total,
+            "pagination": {
+                "current_page": current_page,
+                "total_pages": total_pages,
+                "limit": int(limit),
+                "start": int(start),
+                "has_next": has_next,
+                "has_previous": has_previous,
+                "total_records": total
+            },
             "is_admin": is_admin,
             "user": current_user
         }
@@ -200,6 +219,9 @@ def get_my_client_tradelines(status=None, limit=20, start=0):
         customer_records = frappe.get_all("Customer", 
             filters= dict() if is_admin else { "email_id": current_user}, 
             fields=["name", "customer_name"])
+       
+        
+        
         
         if not customer_records:
             return {
@@ -333,13 +355,24 @@ def get_my_client_tradelines(status=None, limit=20, start=0):
             }
             formatted_tradelines.append(formatted_tradeline)
         
+        # Calculate pagination
+        current_page = (int(start) // int(limit)) + 1 if int(limit) > 0 else 1
+        total_pages = (total + int(limit) - 1) // int(limit) if int(limit) > 0 else 1
+        has_next = (int(start) + int(limit)) < total
+        has_previous = int(start) > 0
+        
         return {
             "success": True,
             "data": formatted_tradelines,
-            "total": total,
-            "limit": int(limit),
-            "start": int(start),
-            "has_more": (int(start) + len(formatted_tradelines)) < total,
+            "pagination": {
+                "current_page": current_page,
+                "total_pages": total_pages,
+                "limit": int(limit),
+                "start": int(start),
+                "has_next": has_next,
+                "has_previous": has_previous,
+                "total_records": total
+            },
             "user": current_user,
             "customer_records": [{"name": rec.name, "customer_name": rec.customer_name} for rec in customer_records]
         }
@@ -443,7 +476,22 @@ def get_client_tradeline_details(tradeline_id):
         except Exception as e:
             frappe.log_error(f"Error fetching attachments for Client Tradeline {tradeline_doc.name}: {str(e)}")
             attachments = []
-        
+
+        customer_info = customer_doc.as_dict() if customer_doc else None
+        if customer_info:
+        # Add date of birth from linked User record
+            user_doc = frappe.get_doc("User", customer_info.get("email_id"))
+            customer_info["date_of_birth"] = user_doc.get("birth_date") if user_doc else None
+            # Hide tax_id field from customer response if tradeline_master does not require ssn
+            if tradeline_master and not tradeline_master.get("requires_ssn"):
+                customer_info["tax_id"] = None
+            if tradeline_master and tradeline_master.get("requires_address"):
+                customer_info["customer_address_details"] = {}
+         
+                addresses = frappe.get_all("Address", filters={"email_id": customer_info.get("email_id")}, fields=["name", "address_line1", "address_line2", "city", "state", "pincode", "country"])
+                if addresses and len(addresses) > 0:
+                    customer_info["customer_address_details"] = addresses[0]
+         
         # Format the response
         response = {
             "success": True,
@@ -482,7 +530,7 @@ def get_client_tradeline_details(tradeline_id):
                 "cart": cart_doc.as_dict() if cart_doc else None,
                 "payment_request": payment_request_doc.as_dict() if payment_request_doc else None,
                 "tradeline_master": tradeline_master.as_dict() if tradeline_master else None,
-                "customer": customer_doc.as_dict() if customer_doc else None
+                "customer": customer_info
             },
             "user": current_user,
             "is_admin": is_admin
@@ -953,13 +1001,24 @@ def get_client_tradelines_for_sellers(status=None, limit=20, start=0):
             }
             formatted_tradelines.append(formatted_tradeline)
         
+        # Calculate pagination
+        current_page = (int(start) // int(limit)) + 1 if int(limit) > 0 else 1
+        total_pages = (total + int(limit) - 1) // int(limit) if int(limit) > 0 else 1
+        has_next = (int(start) + int(limit)) < total
+        has_previous = int(start) > 0
+        
         return {
             "success": True,
             "data": formatted_tradelines,
-            "total": total,
-            "limit": int(limit),
-            "start": int(start),
-            "has_more": (int(start) + len(formatted_tradelines)) < total,
+            "pagination": {
+                "current_page": current_page,
+                "total_pages": total_pages,
+                "limit": int(limit),
+                "start": int(start),
+                "has_next": has_next,
+                "has_previous": has_previous,
+                "total_records": total
+            },
             "is_admin": is_admin,
             "user": current_user,
             "message": "Client tradelines for cardholder/seller retrieved successfully"
@@ -1264,3 +1323,142 @@ def send_refund_request_notification(client_tradeline_doc, requesting_user, refu
         
     except Exception as e:
         frappe.log_error(f"Failed to send refund request notification: {str(e)}", "Refund Request Email Error")
+
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
+def apply_discount(client_tradeline_id, discount_type, discount_value):
+    """
+    Apply a discount to a Client Tradeline
+    
+    Args:
+        client_tradeline_id: Name of the Client Tradeline document
+        discount_type: Either "Percentage" or "Amount"
+        discount_value: The discount value (percentage or fixed amount)
+    
+    Returns:
+        dict: Updated client tradeline details with discount applied
+    
+    Raises:
+        frappe.ValidationError: If validation fails
+    """
+    try:
+        # Validate inputs
+        if not client_tradeline_id:
+            frappe.throw("Client Tradeline ID is required")
+        
+        if not discount_type or discount_type not in ["Percentage", "Amount"]:
+            frappe.throw("Discount type must be either 'Percentage' or 'Amount'")
+        
+        if not discount_value:
+            frappe.throw("Discount value is required")
+        
+        # Convert discount_value to float
+        try:
+            discount_value = flt(discount_value)
+        except:
+            frappe.throw("Discount value must be a valid number")
+        
+        if discount_value < 0:
+            frappe.throw("Discount value cannot be negative")
+        
+        # Get the client tradeline document
+        client_tradeline = frappe.get_doc("Client Tradelines", client_tradeline_id)
+        
+        # Check permissions
+        if not frappe.has_permission("Client Tradelines", "write", client_tradeline):
+            frappe.throw("You don't have permission to modify this Client Tradeline")
+        
+        # Apply the discount
+        client_tradeline.discount_type = discount_type
+        client_tradeline.discount_value = discount_value
+        
+        # Save the document (this will trigger validation and calculation)
+        client_tradeline.save()
+        
+        frappe.db.commit()
+        
+        return {
+            "success": True,
+            "message": "Discount applied successfully",
+            "client_tradeline": {
+                "name": client_tradeline.name,
+                "customer": client_tradeline.customer,
+                "customer_name": client_tradeline.customer_name,
+                "tradeline": client_tradeline.tradeline,
+                "tradeline_name": client_tradeline.tradeline_name,
+                "quantity": client_tradeline.quantity,
+                "unit_price": client_tradeline.unit_price,
+                "subtotal": client_tradeline.subtotal,
+                "discount_type": client_tradeline.discount_type,
+                "discount_value": client_tradeline.discount_value,
+                "discount_amount": client_tradeline.discount_amount,
+                "total_amount": client_tradeline.total_amount,
+                "status": client_tradeline.status
+            }
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Failed to apply discount: {str(e)}", "Apply Discount Error")
+        frappe.throw(f"Failed to apply discount: {str(e)}")
+
+
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
+def remove_discount(client_tradeline_id):
+    """
+    Remove discount from a Client Tradeline
+    
+    Args:
+        client_tradeline_id: Name of the Client Tradeline document
+    
+    Returns:
+        dict: Updated client tradeline details without discount
+    
+    Raises:
+        frappe.ValidationError: If validation fails
+    """
+    try:
+        # Validate input
+        if not client_tradeline_id:
+            frappe.throw("Client Tradeline ID is required")
+        
+        # Get the client tradeline document
+        client_tradeline = frappe.get_doc("Client Tradelines", client_tradeline_id)
+        
+        # Check permissions
+        if not frappe.has_permission("Client Tradelines", "write", client_tradeline):
+            frappe.throw("You don't have permission to modify this Client Tradeline")
+        
+        # Remove the discount
+        client_tradeline.discount_type = None
+        client_tradeline.discount_value = 0
+        client_tradeline.discount_amount = 0
+        
+        # Save the document (this will trigger recalculation)
+        client_tradeline.save()
+        
+        frappe.db.commit()
+        
+        return {
+            "success": True,
+            "message": "Discount removed successfully",
+            "client_tradeline": {
+                "name": client_tradeline.name,
+                "customer": client_tradeline.customer,
+                "customer_name": client_tradeline.customer_name,
+                "tradeline": client_tradeline.tradeline,
+                "tradeline_name": client_tradeline.tradeline_name,
+                "quantity": client_tradeline.quantity,
+                "unit_price": client_tradeline.unit_price,
+                "subtotal": client_tradeline.subtotal,
+                "discount_type": client_tradeline.discount_type,
+                "discount_value": client_tradeline.discount_value,
+                "discount_amount": client_tradeline.discount_amount,
+                "total_amount": client_tradeline.total_amount,
+                "status": client_tradeline.status
+            }
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Failed to remove discount: {str(e)}", "Remove Discount Error")
+        frappe.throw(f"Failed to remove discount: {str(e)}")

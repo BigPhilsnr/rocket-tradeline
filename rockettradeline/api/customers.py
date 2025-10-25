@@ -194,14 +194,24 @@ def get_customers(customer_type=None, is_seller=None, is_buyer=None, status=None
             }
             formatted_customers.append(formatted_customer)
         
+        # Calculate pagination
+        current_page = (int(start) // int(limit)) + 1 if int(limit) > 0 else 1
+        total_pages = (total + int(limit) - 1) // int(limit) if int(limit) > 0 else 1
+        has_next = (int(start) + int(limit)) < total
+        has_previous = int(start) > 0
+        
         return {
             "success": True,
-            # "query": query,
             "data": formatted_customers,
-            "total": total,
-            "limit": int(limit),
-            "start": int(start),
-            "has_more": (int(start) + len(formatted_customers)) < total,
+            "pagination": {
+                "current_page": current_page,
+                "total_pages": total_pages,
+                "limit": int(limit),
+                "start": int(start),
+                "has_next": has_next,
+                "has_previous": has_previous,
+                "total_records": total
+            },
             "statistics": {
                 "total_customers": stats.get("total_customers", 0),
                 "total_sellers": stats.get("total_sellers", 0),

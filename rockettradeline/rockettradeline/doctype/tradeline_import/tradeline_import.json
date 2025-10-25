@@ -1,0 +1,192 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:TLI-{YYYY}-{#####}",
+ "creation": "2025-10-12 14:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "import_title",
+  "import_date",
+  "column_break_header",
+  "suppress_emails",
+  "import_status",
+  "import_items_section",
+  "import_items",
+  "summary_section",
+  "total_records",
+  "successful_imports",
+  "column_break_summary",
+  "failed_imports",
+  "processing_time",
+  "logs_section",
+  "validation_log",
+  "column_break_logs",
+  "processing_log",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "import_title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Import Title"
+  },
+  {
+   "default": "Today",
+   "fieldname": "import_date",
+   "fieldtype": "Date",
+   "label": "Import Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_header",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "Check this to suppress all email notifications for this import batch (for historical data imports)",
+   "fieldname": "suppress_emails",
+   "fieldtype": "Check",
+   "label": "Suppress All Emails"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "Draft",
+   "fieldname": "import_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Import Status",
+   "options": "Draft\nProcessing\nCompleted\nPartially Failed\nFailed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "import_items_section",
+   "fieldtype": "Section Break",
+   "label": "Import Items"
+  },
+  {
+   "fieldname": "import_items",
+   "fieldtype": "Table",
+   "label": "Import Items",
+   "options": "Tradeline Import Item",
+   "reqd": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "summary_section",
+   "fieldtype": "Section Break",
+   "label": "Import Summary"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "0",
+   "fieldname": "total_records",
+   "fieldtype": "Int",
+   "label": "Total Records",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "0",
+   "fieldname": "successful_imports",
+   "fieldtype": "Int",
+   "label": "Successful Imports",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_summary",
+   "fieldtype": "Column Break"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "0",
+   "fieldname": "failed_imports",
+   "fieldtype": "Int",
+   "label": "Failed Imports",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "processing_time",
+   "fieldtype": "Data",
+   "label": "Processing Time",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "logs_section",
+   "fieldtype": "Section Break",
+   "label": "Processing Logs"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "validation_log",
+   "fieldtype": "Long Text",
+   "label": "Validation Log",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_logs",
+   "fieldtype": "Column Break"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "processing_log",
+   "fieldtype": "Long Text",
+   "label": "Processing Log",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Tradeline Import",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2025-10-12 14:00:00",
+ "modified_by": "Administrator",
+ "module": "RocketTradeLine",
+ "name": "Tradeline Import",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "RocketTradeLine Admin",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

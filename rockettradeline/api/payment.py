@@ -34,8 +34,8 @@ def send_payment_request_notification_email(payment_request_doc):
             'cart_id': payment_request_doc.cart_id,
             'status': payment_request_doc.status,
             'created_at': str(getattr(payment_request_doc, 'created_at', payment_request_doc.creation)),
-            'payment_request_url': f"https://rocket-app.tiberbuhealth.com/app/payment-request/{payment_request_doc.name}",
-            'admin_portal_url': 'https://rocket-app.tiberbuhealth.com/app'
+            'payment_request_url': f"https://www.rockettradeline.com",
+            'admin_portal_url': 'https://www.rockettradeline.com'
         }
         
         # Send email using Email Template Custom
@@ -92,12 +92,20 @@ def send_payment_approval_email(payment_request_doc):
             'transaction_id': getattr(payment_request_doc, 'transaction_id', 'N/A') or 'N/A',
             'approved_at': str(getattr(payment_request_doc, 'approved_at', payment_request_doc.creation)),
             'tradeline_details': tradeline_details,
-            'portal_link': 'https://rocket-app.tiberbuhealth.com/app'
+            'portal_link': 'https://rockettradeline.com'
         }
         
-        # Send email using Email Template Custom
-        result = send_email_from_template('Payment Approval', payment_request_doc.customer_email, context)
-        
+        # check if customer linked to the payment request has accocunt_manager, if has account manager let the email be sent to account manager
+        customer = frappe.get_doc("Customer", payment_request_doc.customer)
+        if customer.account_manager:
+            # Send email to account manager
+            result = send_email_from_template('Broker Action Required', customer.account_manager, context)
+            result = send_email_from_template('Broker Action Required', payment_request_doc.customer_email, context)
+        # else:
+        #     print("IJ requested me to do nothing")
+        #     # Send email using Email Template Custom
+        #     # result = send_email_from_template('Payment Approval', payment_request_doc.customer_email, context)
+
         return True
         
     except Exception as e:
@@ -106,7 +114,7 @@ def send_payment_approval_email(payment_request_doc):
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def create_manual_payment_request(cart_id, payment_method):
+def create_manual_payment_request(cart_id, payment_method, buyer=None):
     """Create a manual payment request that requires approval"""
     try:
         current_user = get_authenticated_user()
@@ -142,7 +150,7 @@ def create_manual_payment_request(cart_id, payment_method):
         
         # Validate cart exists and is owned by current user or user is administrator
         cart = frappe.get_doc("Tradeline Cart", cart_id)
-        if cart.user_id != current_user and current_user != "Administrator" and "Administrator" not in frappe.get_roles(current_user):
+        if not buyer and cart.user_id != current_user and current_user != "Administrator" and "Administrator" not in frappe.get_roles(current_user):
             return {"success": False, "error": f"Cart not found or access denied cart belong to {cart.user_id}  not {current_user}"}
 
         # if cart.status != "Active":
@@ -153,7 +161,7 @@ def create_manual_payment_request(cart_id, payment_method):
         total_amount = cart_total["total"]
 
         # Validate payment method
-        valid_methods = ["Apple Cash", "Zelle", "CashApp", "Venmo", "Bank Transfer", "Cash", "Check", "Other"]
+        valid_methods = frappe.get_all("Payment Configuration", pluck="name")
         if payment_method not in valid_methods:
             return {"success": False, "error": f"Invalid payment method. Must be one of: {', '.join(valid_methods)}"}
         
@@ -183,13 +191,13 @@ def create_manual_payment_request(cart_id, payment_method):
             # Create manual Payment Request document
             payment_doc = frappe.get_doc({
                 "doctype": "Payment Request",
-                "title": f"Manual Payment - {cart_id} - {now_datetime().strftime('%Y%m%d%H%M%S')}",
+                "title": f"MP- {cart_id} - {now_datetime().strftime('%Y%m%d%H%M%S')}",
                 "payment_method": payment_method,
                 "cart_id": cart_id,
                 "amount": total_amount,
                 "fees": 0,  # No fees for manual payments
                 "total_amount": total_amount,
-                "customer_email": current_user,
+                "customer_email": cart.user_id,
                 "status": "Pending",
                 "created_by": current_user,
                 "created_at": now_datetime(),
@@ -223,6 +231,7 @@ def create_manual_payment_request(cart_id, payment_method):
         except Exception as email_error:
             # Email notification failed, but payment request was created successfully
             pass
+       
 
         return {
             "success": True,
@@ -231,6 +240,7 @@ def create_manual_payment_request(cart_id, payment_method):
             "cart_id": cart_id,
             "payment_method": payment_method,
             "amount": total_amount,
+            "status": "Pending",
             "approval_status": "Pending Approval",
             "proof_of_payment_url": file_url,
             "has_attachment": bool(file_url),
@@ -300,8 +310,18 @@ def upload_payment_proof(payment_request_id):
         else:
             return {"success": False, "error": "No files in request"}
         
+        if payment_req.approval_status == "Rejected":
+            try:
+                email_sent = send_payment_request_notification_email(payment_req)
+            except Exception as email_error:
+                # Email notification failed, but payment request was created successfully
+                pass
+
+
+        
         # Update payment request with file
         payment_req.proof_of_payment = file_url
+        payment_req.approval_status = "Pending Approval"    
         payment_req.save(ignore_permissions=True)
         
         # Link file to payment request
@@ -374,12 +394,7 @@ def approve_manual_payment(payment_request_id, approval_action="approve", reject
             payment_req.save(ignore_permissions=True)
             frappe.db.commit()
             
-            # Send approval email to customer
-            try:
-                send_payment_approval_email(payment_req)
-                message = "Manual payment request approved successfully and email sent to customer"
-            except Exception as email_error:
-                message = f"Manual payment request approved successfully (email notification failed: {str(email_error)})"
+
             
         elif approval_action == "reject":
             # Reject the payment
@@ -398,7 +413,7 @@ def approve_manual_payment(payment_request_id, approval_action="approve", reject
 
         return {
             "success": True,
-            "message": message,
+            "message": f"{approval_action.capitalize()} action completed successfully",
             "payment_request_id": payment_request_id,
             "approval_status": payment_req.approval_status,
             "status": payment_req.status
@@ -414,7 +429,7 @@ def approve_manual_payment(payment_request_id, approval_action="approve", reject
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_manual_payment_requests(status=None, limit=20, start=0):
+def get_manual_payment_requests(status=None, limit=20, start=0, name=None):
     """Get manual payment requests (Admin only)"""
     try:
         current_user = get_authenticated_user()
@@ -425,15 +440,17 @@ def get_manual_payment_requests(status=None, limit=20, start=0):
         if not frappe.has_permission("Payment Request", "read") and current_user != "Administrator":
             return {"success": False, "error": "Insufficient permissions. Admin access required."}
 
+
         # Convert pagination parameters to integers
         limit = int(limit or 20)
         start = int(start or 0)
 
-        filters = {"is_manual_payment": 1}
+        filters = {}
         if status:
             filters["approval_status"] = status
-
-        manual_payments = frappe.get_all(
+        if name:
+            filters["name"] = name
+        manual_payments = frappe.get_all(   
             "Payment Request",
             filters=filters,
             fields=[

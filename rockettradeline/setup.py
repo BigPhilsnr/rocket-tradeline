@@ -8,6 +8,8 @@ def after_install():
     setup_custom_roles()
     setup_permissions()
     create_default_site_content()
+    hide_standard_workspaces()
+    setup_rocket_tradeline_workspace()
     print("Rockettradeline app installation completed successfully!")
 
 def setup_custom_roles():
@@ -263,6 +265,56 @@ def create_sample_data():
             faq.insert(ignore_permissions=True)
     
     print("Sample data created successfully!")
+
+def hide_standard_workspaces():
+    """Hide all standard Frappe/ERPNext workspaces"""
+    
+    # List of workspaces to keep visible
+    visible_workspaces = ["Home", "Rocket Tradeline"]
+    
+    # Get all workspaces
+    workspaces = frappe.get_all("Workspace", fields=["name", "title"])
+    
+    for workspace in workspaces:
+        workspace_name = workspace.get("name")
+        workspace_title = workspace.get("title")
+        
+        # Skip visible workspaces
+        if workspace_title in visible_workspaces or workspace_name in visible_workspaces:
+            continue
+        
+        # Hide all other workspaces (including ERPNext Settings, ERPNext Integrations, etc.)
+        try:
+            frappe.db.set_value("Workspace", workspace_name, {
+                "is_hidden": 1,
+                "public": 0
+            }, update_modified=False)
+            print(f"Hidden workspace: {workspace_name}")
+        except Exception as e:
+            frappe.log_error(f"Error hiding workspace {workspace_name}: {str(e)}")
+    
+    frappe.db.commit()
+
+def setup_rocket_tradeline_workspace():
+    """Ensure Rocket Tradeline workspace is properly configured"""
+    try:
+        if frappe.db.exists("Workspace", "Rocket Tradeline"):
+            frappe.db.set_value("Workspace", "Rocket Tradeline", {
+                "is_hidden": 0,
+                "public": 1
+            }, update_modified=False)
+            print("Rocket Tradeline workspace set to visible")
+        
+        if frappe.db.exists("Workspace", "Home"):
+            frappe.db.set_value("Workspace", "Home", {
+                "is_hidden": 0,
+                "public": 1
+            }, update_modified=False)
+            print("Home workspace set to visible")
+    except Exception as e:
+        frappe.log_error(f"Error setting up workspaces: {str(e)}")
+    
+    frappe.db.commit()
 
 if __name__ == "__main__":
     after_install()

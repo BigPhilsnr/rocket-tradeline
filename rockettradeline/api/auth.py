@@ -425,7 +425,9 @@ def get_email_header(logo_height="60px", logo_width="200px"):
             <!-- Header with Logo -->
             <div style="padding: 30px 30px 20px 30px; text-align: center;">
                 <div style="margin-bottom: 20px;">
-                    <img src="{site_logo}" alt="Rocket Tradeline" style="max-height: {logo_height}; max-width: {logo_width};" />
+                    <a href="https://www.rockettradeline.com" target="_blank" style="text-decoration: none;">
+                        <img src="{site_logo}" alt="Rocket Tradeline" style="max-height: {logo_height}; max-width: {logo_width};" />
+                    </a>
                 </div>
             </div>
             
@@ -471,11 +473,11 @@ def get_email_footer(recipient_email):
                 "alt": "Twitter"
             },
             "instagram": {
-                "icon_url": "https://cdn-icons-png.flaticon.com/512/124/124024.png",
+                "icon_url": "https://cdn-icons-png.flaticon.com/512/2111/2111463.png",
                 "alt": "Instagram"
             },
             "pinterest": {
-                "icon_url": "https://cdn-icons-png.flaticon.com/512/124/124033.png",
+                "icon_url": "https://cdn-icons-png.flaticon.com/512/145/145808.png",
                 "alt": "Pinterest"
             },
             "tiktok": {
@@ -625,7 +627,7 @@ def send_verification_email(user_email, full_name, verification_token):
                 # Prepare context for template
                 context = {
                     'full_name': full_name,
-                    'site_name': 'Rocket Tradelines',
+                    'site_name': 'Rocket Tradeline',
                     'verification_link': verification_link,
                     'recipient_email': user_email
                 }
@@ -1409,9 +1411,13 @@ def get_current_user():
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def update_profile(full_name=None, phone=None, user_image=None, gender=None, date_of_birth=None, 
+def update_profile(full_name=None, phone=None, user_image=None, gender=None, date_of_birth=None,dob=None, 
                   social_security_number=None, address_line1=None, address_line2=None, city=None, 
                   state=None, zipcode=None, country=None, address_type="Personal", is_default=0,user_id=None):
+
+    if dob:
+        date_of_birth = dob
+
     """
     Update user profile, customer record, and address
     Uses standard Frappe authentication (session-based)
@@ -1421,7 +1427,7 @@ def update_profile(full_name=None, phone=None, user_image=None, gender=None, dat
         # frappe.session.user will be set to the authenticated user
         user_name = get_authenticated_user()
         if user_id:
-            if is_administrator(frappe.session.user):
+            if is_administrator(frappe.session.user) or frappe.session.user == frappe.db.get_value("Customer", {"email_id": user_id}, "account_manager"):
                 user_name = user_id
             else:
                 frappe.throw("You don't have permission to update this user", frappe.PermissionError)
@@ -1447,6 +1453,7 @@ def update_profile(full_name=None, phone=None, user_image=None, gender=None, dat
             try:
                 datetime.strptime(date_of_birth, '%Y-%m-%d')
                 user.birth_date = date_of_birth
+                
             except ValueError:
                 frappe.throw("Invalid date format. Please use YYYY-MM-DD format.")
         
@@ -2039,7 +2046,7 @@ def broker_create_client(email, full_name, phone=None, ssn=None,
             "tax_id": ssn
         })
 
-        customer.insert(ignore_permissions=True)
+        customer = customer.insert(ignore_permissions=True)
         frappe.db.commit()
 
         # Create address
@@ -2225,9 +2232,20 @@ def get_broker_customers(limit=50, start=0, search=None):
             frappe.local.response.http_status_code = 401
             return {"success": False, "message": "Authentication required"}
 
+        # Convert limit and start to integers with validation
+        try:
+            limit = int(limit) if limit else 50
+            start = int(start) if start else 0
+        except (ValueError, TypeError):
+            frappe.local.response.http_status_code = 400
+            return {"success": False, "message": "Invalid pagination parameters. 'limit' and 'start' must be valid integers."}
+        
         filters = {"account_manager": broker}
         if search:
             filters["customer_name"] = ["like", f"%{search}%"]
+
+        # Get total count for pagination
+        total_count = frappe.db.count("Customer", filters)
 
         customers = frappe.get_all("Customer",
             filters=filters,
@@ -2237,7 +2255,25 @@ def get_broker_customers(limit=50, start=0, search=None):
             order_by="creation desc"
         )
 
-        return {"success": True, "customers": customers}
+        # Calculate pagination
+        current_page = (start // limit) + 1 if limit > 0 else 1
+        total_pages = (total_count + limit - 1) // limit if limit > 0 else 1
+        has_next = (start + limit) < total_count
+        has_previous = start > 0
+
+        return {
+            "success": True,
+            "customers": customers,
+            "pagination": {
+                "current_page": current_page,
+                "total_pages": total_pages,
+                "limit": limit,
+                "start": start,
+                "has_next": has_next,
+                "has_previous": has_previous,
+                "total_records": total_count
+            }
+        }
     except Exception as e:
         frappe.local.response.http_status_code = 500
         return {"success": False, "message": str(e)}
@@ -2492,7 +2528,7 @@ def verify_email(token):
                 <p style="color: #6b7280; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
                     The verification link appears to be incomplete or corrupted. Please check your email for the correct verification link.
                 </p>
-                <a href="https://staging.rockettradeline.com" style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">Go to Homepage</a>
+                <a href="https://www.rockettradeline.com" style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">Go to Homepage</a>
             </div>
             """
             frappe.respond_as_web_page("Invalid Verification Link - Rocket Tradeline", error_message, success=False)
@@ -2509,7 +2545,7 @@ def verify_email(token):
             error_message = f"""
             <div style="text-align: center; padding: 20px;">
                 <div style="margin-bottom: 30px;">
-                    <img src="{frappe.utils.get_url()}/assets/rockettradeline/images/logo.png" alt="Rocket Tradeline" style="max-height: 60px; max-width: 200px;" />
+                    <img src="{frappe.utils.get_url()}/assets/rockettradeline/logo.png" alt="Rocket Tradeline" style="max-height: 60px; max-width: 200px;" />
                 </div>
                 <div style="width: 60px; height: 60px; background-color: #ef4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px;">
                     <span style="color: white; font-size: 30px; font-weight: bold;">✗</span>
@@ -2518,7 +2554,7 @@ def verify_email(token):
                 <p style="color: #6b7280; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
                     The verification link you clicked is invalid or has already been used. Please check your email for the correct link or request a new verification email.
                 </p>
-                <a href="https://staging.rockettradeline.com" style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">Go to Homepage</a>
+                <a href="https://www.rockettradeline.com" style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">Go to Homepage</a>
             </div>
             """
             frappe.respond_as_web_page("Invalid Verification Token - Rocket Tradeline", error_message, success=False)
@@ -2544,7 +2580,7 @@ def verify_email(token):
                     <p style="color: #6b7280; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
                         This verification link has expired. For security reasons, verification links are only valid for 24 hours. Please sign up again or contact support for assistance.
                     </p>
-                    <a href="https://staging.rockettradeline.com" style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">Go to Homepage</a>
+                    <a href="https://www.rockettradeline.com" style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">Go to Homepage</a>
                 </div>
                 """
                 frappe.respond_as_web_page("Verification Link Expired - Rocket Tradeline", expired_message, success=False)
@@ -2568,7 +2604,7 @@ def verify_email(token):
             <p style="color: #6b7280; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
                 Congratulations! Your email address has been successfully verified. You can now access your Rocket Tradeline account and start buying tradelines.
             </p>
-            <a href="https://staging.rockettradeline.com" style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">Click Here to Login</a>
+            <a href="https://www.rockettradeline.com/login" style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">Click Here to Login</a>
         </div>
         """
         from .marketing import send_welcome_email
@@ -2594,7 +2630,7 @@ def verify_email(token):
             <p style="color: #6b7280; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
                 An error occurred during email verification. Please try again or contact support if the problem persists.
             </p>
-            <a href="https://staging.rockettradeline.com" style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">Go to Homepage</a>
+            <a href="https://www.rockettradeline.com" style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">Go to Homepage</a>
         </div>
         """
         frappe.respond_as_web_page("Verification Error - Rocket Tradeline", error_message, success=False)
@@ -3072,7 +3108,7 @@ def send_reset_password_link(email):
         frappe.db.commit()
         
         # Create reset password link
-        reset_link = f"https://staging.rockettradeline.com/reset-password?key={reset_key}"
+        reset_link = f"https://www.rockettradeline.com/reset-password?key={reset_key}"
         
         # Get user's full name
         full_name = user_doc.full_name or user_doc.first_name or email.split('@')[0]
@@ -3330,7 +3366,7 @@ def send_client_signature_email(client_email, full_name, signature_key):
     """
     try:
         # Create signature link
-        signature_link = f"https://staging.rockettradeline.com/client-signature?key={signature_key}"
+        signature_link = f"https://www.rockettradeline.com/client-signature?key={signature_key}"
         
         # Get consistent email header and footer
         email_header = get_email_header()
@@ -3344,7 +3380,7 @@ def send_client_signature_email(client_email, full_name, signature_key):
         <p style="color: #374151; font-size: 16px; margin: 0 0 10px 0;">Hello {full_name},</p>
         
         <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 0 0 25px 0;">
-            Your RocketTradeline account has been created by your broker. To complete your account setup and start purchasing tradelines, we need your digital signature.
+            Your Rocket Tradeline account has been created by your broker. To complete your account setup and start purchasing tradelines, we need your digital signature.
         </p>
         
         <div style="background-color: #f0f9ff; border-left: 4px solid #17B26A; padding: 20px; border-radius: 6px; margin: 25px 0;">

@@ -21,18 +21,29 @@ class TradelineCart(Document):
             customer = frappe.db.get_value('Customer', {'email_id': self.user_id}, 'name')
             if customer:
                 self.customer = customer
+                
+
     
     def before_save(self):
         """Update calculations before saving"""
         self.modified_at = frappe.utils.now()
         self.calculate_totals()
         self.validate_cart_items()
-    
+        
+    def on_update(self):
+        """Hook to send email on status change"""
+        # Check if status changed to "Checked Out" or "Checkout"
+        if self.has_value_changed('status') and self.status in ['Checkout', 'Checked Out']:
+            frappe.msgprint("Status changed to Checked Out")
+            # self.send_checkout_notification_email()
+            self.send_order_received_notification()
+            
+            
     def validate_cart_items(self):
         """Validate cart items"""
         # Allow empty carts in Draft and Active status (for initial creation)
-        # Only require items for Checkout/Completed status
-        if not self.items and self.status in ['Checkout', 'Completed']:
+        # Only require items for Checked Out/Completed status
+        if not self.items and self.status in ['Checked Out', 'Completed']:
             frappe.throw("Cart cannot be empty for checkout")
         
         for item in self.items:
@@ -255,6 +266,311 @@ class TradelineCart(Document):
         self.cart_expiry = frappe.utils.add_days(self.cart_expiry or frappe.utils.now(), days)
         self.save()
         return self
+    
+    def sendcheckout_notification_email(self):
+        """Send checkout notification email to customer if they have an account manager"""
+        try:
+            if not self.customer:
+                return
+            
+            # Get customer document
+            customer_doc = frappe.get_doc('Customer', self.customer)
+            
+            # Check if customer has an account manager
+            if not customer_doc.account_manager:
+                return
+            
+            # Get customer email
+            customer_email = customer_doc.email_id
+            if not customer_email:
+                return
+            
+            # Get customer name (first name for personalization)
+            customer_name = customer_doc.customer_name or customer_email.split('@')[0]
+            first_name = customer_name.split()[0] if customer_name else "Valued Customer"
+            
+            # Get broker/account manager name
+            broker_name = "your broker"
+            try:
+                broker_user = frappe.get_doc('User', customer_doc.account_manager)
+                broker_name = broker_user.full_name or broker_user.first_name or customer_doc.account_manager
+            except:
+                pass
+            
+            # Use the JotForm link for the Authorized User Agreement
+            signature_link = "https://www.jotform.com/sign/250833758418061/invite/01jq6t779d88b0042e02d8709f"
+            
+            # Prepare email subject
+            subject = "Complete Your Authorized User Agreement - Rocket Tradeline"
+            
+            # Get email header and footer
+            from rockettradeline.api.auth import get_email_header, get_email_footer
+            email_header = get_email_header()
+            email_footer = get_email_footer(customer_email)
+            
+            # Prepare email content
+            message = f"""{email_header}
+            <h3 style="color: #374151; margin: 0 0 20px 0;">📋 Complete Your Authorized User Agreement</h3>
+            <p style="color: #374151; font-size: 16px; margin: 0 0 10px 0;">Hello {first_name},</p>
+            
+            <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 0 0 25px 0;">
+                Thank you for choosing Rocket Tradeline. Please review and complete the Authorized User Lease Agreement at the link below. This form must be signed for your order to be processed:
+            </p>
+            
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{signature_link}" 
+                   style="background-color: #17B26A; color: white; padding: 14px 28px; text-decoration: none; 
+                          border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">
+                    👉 Click Here to Sign
+                </a>
+            </div>
+            
+            <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 20px; border-radius: 6px; margin: 25px 0;">
+                <p style="margin: 0 0 15px 0; color: #92400e; font-weight: 600; font-size: 16px;">
+                    📞 Important: Call Required for Identity Verification
+                </p>
+                <p style="margin: 0 0 15px 0; color: #92400e; line-height: 1.6;">
+                    To proceed with your Authorized User (AU) order, we are required to verify your identity, relationship, and consent. Please call us today at <strong>469-677-7948</strong> to complete this step.
+                </p>
+            </div>
+            
+            <div style="background-color: #f0f9ff; border-left: 4px solid #17B26A; padding: 20px; border-radius: 6px; margin: 25px 0;">
+                <h4 style="color: #374151; margin: 0 0 15px 0; font-size: 16px;">What this call will confirm:</h4>
+                <ul style="margin: 0; padding-left: 20px; color: #6b7280; line-height: 1.6;">
+                    <li style="margin: 8px 0;">✅ Your full legal name and date of birth (or last 4 of SSN).</li>
+                    <li style="margin: 8px 0;">✅ That Rocket Tradeline will add you as an Authorized User to one of our cardholder accounts.</li>
+                    <li style="margin: 8px 0;">✅ That your direct relationship is with Rocket Tradeline, and <strong>{broker_name}</strong> referred you.</li>
+                    <li style="margin: 8px 0;">✅ That you understand you will not have access to the cardholder's account, spending privileges, or account details.</li>
+                    <li style="margin: 8px 0;">✅ That you understand this service is for credit reporting purposes only.</li>
+                    <li style="margin: 8px 0;">✅ That you consent to being added as an AU under these terms.</li>
+                    <li style="margin: 8px 0;">✅ That you acknowledge Rocket Tradeline will remove you from the account once your agreed term has ended.</li>
+                </ul>
+            </div>
+            
+            <div style="background-color: #f9fafb; border-left: 4px solid #6b7280; padding: 15px; border-radius: 6px; margin: 25px 0;">
+                <p style="margin: 0; color: #374151; font-weight: 600; font-size: 14px;">
+                    📋 Next Steps:
+                </p>
+                <ol style="margin: 10px 0 0 0; padding-left: 20px; color: #6b7280; line-height: 1.6;">
+                    <li style="margin: 5px 0;">Click the "Sign Agreement" button above</li>
+                    <li style="margin: 5px 0;">Call us at 469-677-7948 for verification</li>
+                    <li style="margin: 5px 0;">We'll process your AU addition once complete</li>
+                </ol>
+            </div>
+            
+            <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 25px 0 0 0;">
+                Once the steps above are completed, Rocket Tradeline will proceed with your AU addition.
+            </p>
+            
+            <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 15px 0 0 0;">
+                If you have any questions, please reply directly to this email.
+            </p>
+            {email_footer}"""
+            
+            # Send email using Email Template Custom system
+            try:
+                from rockettradeline.rockettradeline.doctype.email_template_custom.email_template_custom import send_email_template
+                
+                # Prepare template parameters
+                template_params = {
+                    "first_name": first_name,
+                    "customer_name": customer_name,
+                    "broker_name": broker_name,
+                    "signature_link": signature_link,
+                    "customer_email": customer_email
+                }
+                
+                # Try to use a specific template if it exists
+                send_email_template(
+                    template_name="Authorized User Agreement Required",
+                    recipients=[customer_email],
+                    parameters=template_params
+                )
+                
+                frappe.logger().info(f"Checkout notification email sent to {customer_email} for cart {self.name}")
+                
+            except Exception as template_error:
+                frappe.log_error(f"Template email failed for cart {self.name}: {str(template_error)}")
+                
+                # Fallback: Use frappe.sendmail directly
+                frappe.sendmail(
+                    recipients=[customer_email],
+                    subject=subject,
+                    message=message,
+                    now=True
+                )
+                
+                frappe.logger().info(f"Checkout notification email sent via sendmail to {customer_email} for cart {self.name}")
+                
+        except Exception as e:
+            frappe.log_error(f"Failed to send checkout notification email for cart {self.name}: {str(e)}", "Checkout Email Error")
+            # Don't raise the error to prevent cart save from failing
+    
+    def send_order_received_notification(self):
+        """Send order received notification email to account manager or customer"""
+        try:
+            if not self.customer:
+                return
+            
+            # Get customer document
+            customer_doc = frappe.get_doc('Customer', self.customer)
+            
+            # Get customer name for subject and personalization
+            customer_name = customer_doc.customer_name or customer_doc.name
+            
+            # Determine recipient email
+            recipient_email = None
+            recipient_name = "Team"
+            
+            # Priority: Account Manager, then Customer Email
+            if customer_doc.account_manager:
+                try:
+                    account_manager_user = frappe.get_doc('User', customer_doc.account_manager)
+                    recipient_email = account_manager_user.email
+                    recipient_name = account_manager_user.full_name or account_manager_user.first_name or customer_doc.account_manager
+                except:
+                    # Fallback to customer email if account manager user not found
+                    recipient_email = customer_doc.email_id
+                    recipient_name = customer_name
+            else:
+                recipient_email = customer_doc.email_id
+                recipient_name = customer_name
+            
+            if not recipient_email:
+                frappe.log_error(f"No email address found for order notification - Cart: {self.name}, Customer: {self.customer}")
+                return
+            
+            # Prepare email subject
+            subject = f"Tradeline Order Received {customer_name}"
+            
+            # Get email header and footer
+            from rockettradeline.api.auth import get_email_header, get_email_footer
+            email_header = get_email_header()
+            email_footer = get_email_footer(recipient_email)
+            
+            # Prepare email content
+            message = f"""{email_header}
+            <h3 style="color: #374151; margin: 0 0 20px 0;">📋 Tradeline Order Received - {customer_name}</h3>
+            <p style="color: #374151; font-size: 16px; margin: 0 0 10px 0;">Hello {recipient_name.split()[0] if recipient_name else "Team"},</p>
+            
+            <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 0 0 25px 0;">
+                Thank you for submitting the Tradeline Order Form. We've received your request and are beginning the processing steps. Here's what to expect next:
+            </p>
+            
+            <div style="background-color: #f0f9ff; border-left: 4px solid #17B26A; padding: 20px; border-radius: 6px; margin: 25px 0;">
+                <h4 style="color: #374151; margin: 0 0 15px 0; font-size: 16px;">✅ Verification Call (Within 24 Hours)</h4>
+                <p style="margin: 0; color: #6b7280; line-height: 1.6;">
+                    A quick call will be completed with the authorized user (AU) to verify their identity, relationship, and consent.
+                </p>
+            </div>
+            
+            <div style="background-color: #f0f9ff; border-left: 4px solid #17B26A; padding: 20px; border-radius: 6px; margin: 25px 0;">
+                <h4 style="color: #374151; margin: 0 0 15px 0; font-size: 16px;">✅ AU Agreement (If Not Already on File)</h4>
+                <p style="margin: 0; color: #6b7280; line-height: 1.6;">
+                    If we don't already have a signed AU agreement, a link will be provided for the AU to review and complete before processing continues.
+                </p>
+            </div>
+            
+            <div style="background-color: #f0f9ff; border-left: 4px solid #17B26A; padding: 20px; border-radius: 6px; margin: 25px 0;">
+                <h4 style="color: #374151; margin: 0 0 15px 0; font-size: 16px;">✅ AU Confirmation (Within 24–48 Hours)</h4>
+                <p style="margin: 0; color: #6b7280; line-height: 1.6;">
+                    You'll receive a confirmation email once the authorized user (AU) has been successfully added to the tradeline.
+                </p>
+            </div>
+            
+            <div style="background-color: #f0f9ff; border-left: 4px solid #17B26A; padding: 20px; border-radius: 6px; margin: 25px 0;">
+                <h4 style="color: #374151; margin: 0 0 15px 0; font-size: 16px;">✅ Update the AU's Address</h4>
+                <p style="margin: 0; color: #6b7280; line-height: 1.6;">
+                    After receiving confirmation, follow the instructions in the email to update the AU's address on their credit profile. Tools like SmartCredit or IdentityIQ can be helpful for this step.
+                </p>
+            </div>
+            
+            <div style="background-color: #f0f9ff; border-left: 4px solid #17B26A; padding: 20px; border-radius: 6px; margin: 25px 0;">
+                <h4 style="color: #374151; margin: 0 0 15px 0; font-size: 16px;">✅ Reporting Timeline & Reminder</h4>
+                <p style="margin: 0; color: #6b7280; line-height: 1.6;">
+                    We'll send you a reminder around the tradeline's statement closing date to check whether it has posted. Please note that it may take up to two full billing cycles for the tradeline to appear on the AU's credit report.
+                </p>
+            </div>
+            
+            <p style="color: #6b7280; line-height: 1.6; font-size: 16px; margin: 25px 0 0 0;">
+                If you have any questions in the meantime, feel free to reach out.
+            </p>
+            {email_footer}"""
+            
+            # Send email using Email Template Custom system
+            try:
+                from rockettradeline.rockettradeline.doctype.email_template_custom.email_template_custom import send_email_template
+                
+                # Send separate email for each cart item
+                for item in self.items:
+                    try:
+                        # Get tradeline details
+                        tradeline_doc = frappe.get_doc('Tradeline', item.tradeline)
+                        tradeline_bank = item.tradeline_name or tradeline_doc.bank
+                        credit_limit = tradeline_doc.credit_limit or 0
+                        
+                        # Get closing date for reporting date calculation
+                        closing_date = tradeline_doc.closing_date or 15
+                        
+                        # Calculate the next closing date
+                        # closing_date is the actual day number (e.g., 5, 10, 15)
+                        # If today's day is less than closing_date, next closing is this month
+                        # If today's day is >= closing_date, next closing is next month
+                        today = frappe.utils.getdate(frappe.utils.today())
+                        current_day = today.day
+                        
+                        from datetime import date
+                        if current_day < closing_date:
+                            # Next closing date is this month
+                            next_closing_date = date(today.year, today.month, closing_date)
+                        else:
+                            # Next closing date is next month
+                            next_month = frappe.utils.add_months(today, 1)
+                            next_month_date = frappe.utils.getdate(next_month)
+                            next_closing_date = date(next_month_date.year, next_month_date.month, closing_date)
+                        
+                        # Reporting date is 61 days after the next closing date
+                        reporting_date = frappe.utils.add_days(next_closing_date, 61)
+                        
+                        # Prepare template parameters for this specific item
+                        template_params = {
+                            "full_name": customer_name,
+                            "order_number": f"{self.name}-{item.idx}",
+                            "tradeline_bank": tradeline_bank,
+                            "credit_limit": credit_limit,
+                            "reporting_date": reporting_date,
+                            "processing_days": "5-7"
+                        }
+                        
+                        # Send email for this specific tradeline
+                        send_email_template(
+                            template_name="Order Shipped",
+                            recipients=[recipient_email],
+                            parameters=template_params
+                        )
+                        
+                        frappe.logger().info(f"Order notification email sent to {recipient_email} for cart {self.name}, item {item.tradeline}")
+                        
+                    except Exception as item_error:
+                        frappe.log_error(f"Failed to send email for cart item {item.tradeline}: {str(item_error)}", "Order Item Email Error")
+                        continue
+                
+            except Exception as template_error:
+                frappe.log_error(f"Template email failed for order notification cart {self.name}: {str(template_error)}")
+                
+                # Fallback: Use frappe.sendmail directly
+                frappe.sendmail(
+                    recipients=[recipient_email],
+                    subject=subject,
+                    message=message,
+                    now=True
+                )
+                
+                frappe.logger().info(f"Order received notification email sent via sendmail to {recipient_email} for cart {self.name}")
+                
+        except Exception as e:
+            frappe.log_error(f"Failed to send order received notification email for cart {self.name}: {str(e)}", "Order Notification Email Error")
+            # Don't raise the error to prevent cart save from failing
 
 @frappe.whitelist()
 def get_cart_summary(cart_id):

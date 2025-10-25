@@ -29,7 +29,8 @@
   "notes",
   "column_break_18",
   "created_at",
-  "modified_at"
+  "modified_at",
+  "is_external"
  ],
  "fields": [
   {
@@ -162,6 +163,13 @@
    "fieldtype": "Link",
    "label": "Payment Address",
    "options": "Address"
+  },
+  {
+   "default": "0",
+   "description": "Check this for imported records to suppress all email notifications",
+   "fieldname": "is_external",
+   "fieldtype": "Check",
+   "label": "Is External Import"
   }
  ],
  "index_web_pages_for_search": 1,

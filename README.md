@@ -34,7 +34,7 @@ The Rockettradeline API provides a complete solution for managing tradelines, sh
 
 ```
 Production: https://rockettradeline.com/api/method/
-Staging: https://staging.rockettradeline.com/api/method/
+Staging: https://www.rockettradeline.com/api/method/
 ```
 
 ## 🔐 Authentication
@@ -762,7 +762,93 @@ Get payment status for cart.
 
 ---
 
-### 👥 User Management APIs (Admin)
+### � Client Tradeline Discount APIs
+
+#### POST `/rockettradeline.api.client_tradelines.apply_discount` 🔒
+Apply a discount to an existing Client Tradeline.
+
+**Headers:** `X-Authorization: Bearer {token}`
+
+**Request Body:**
+```json
+{
+  "client_tradeline_id": "CTL-00001",
+  "discount_type": "Percentage",
+  "discount_value": 10
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Discount applied successfully",
+  "client_tradeline": {
+    "name": "CTL-00001",
+    "customer": "CUST-00001",
+    "customer_name": "John Doe",
+    "tradeline": "TL-0001",
+    "tradeline_name": "Chase Bank",
+    "quantity": 2,
+    "unit_price": 150.0,
+    "subtotal": 300.0,
+    "discount_type": "Percentage",
+    "discount_value": 10.0,
+    "discount_amount": 30.0,
+    "total_amount": 270.0,
+    "status": "Active"
+  }
+}
+```
+
+**Discount Types:**
+- **Percentage**: Value between 0-100 (e.g., 10 = 10% off)
+- **Amount**: Fixed dollar amount (e.g., 25 = $25 off)
+
+**Validation Rules:**
+- Percentage must be ≤ 100%
+- Amount must be ≤ subtotal
+- Discount value must be ≥ 0
+- User must have write permission on the Client Tradeline
+
+#### POST `/rockettradeline.api.client_tradelines.remove_discount` 🔒
+Remove discount from a Client Tradeline.
+
+**Headers:** `X-Authorization: Bearer {token}`
+
+**Request Body:**
+```json
+{
+  "client_tradeline_id": "CTL-00001"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Discount removed successfully",
+  "client_tradeline": {
+    "name": "CTL-00001",
+    "customer": "CUST-00001",
+    "customer_name": "John Doe",
+    "tradeline": "TL-0001",
+    "tradeline_name": "Chase Bank",
+    "quantity": 2,
+    "unit_price": 150.0,
+    "subtotal": 300.0,
+    "discount_type": null,
+    "discount_value": 0,
+    "discount_amount": 0,
+    "total_amount": 300.0,
+    "status": "Active"
+  }
+}
+```
+
+---
+
+### �👥 User Management APIs (Admin)
 
 #### GET `/rockettradeline.api.auth.get_users` 🔒👑
 Get list of users (Admin only).
@@ -942,12 +1028,71 @@ curl -X POST "https://rockettradeline.com/api/method/rockettradeline.api.cart.ad
   -d '{"tradeline_id":"00018","quantity":1}'
 ```
 
-## 📞 Support
+## � Bulk Import System
+
+### Overview
+For administrators who need to import historical tradeline purchase data, RocketTradeLine provides a comprehensive **Tradeline Bulk Import** system. This allows you to import existing purchase records from Excel files without triggering customer email notifications.
+
+### Key Features
+- ✅ **Excel-based Import**: Upload purchases via Excel/CSV files
+- ✅ **Complete Record Creation**: Automatically creates Customer, Cart, Payment Request, and Client Tradelines
+- ✅ **Attachment Support**: Import proof of payment and AU assignment documents
+- ✅ **Discount Support**: Import percentage and fixed-amount discounts
+- ✅ **Email Suppression**: External imports don't trigger notifications
+- ✅ **Data Validation**: Comprehensive validation of all import data
+- ✅ **Status Preservation**: Maintains original payment and tradeline statuses
+
+### Documentation
+For complete details on the bulk import system, including:
+- DocType structure and field definitions
+- Excel template format
+- `is_external` flag implementation
+- Email suppression logic
+- Step-by-step import process
+- Validation rules and error handling
+
+**See:** [TRADELINE_IMPORT_README.md](./TRADELINE_IMPORT_README.md)
+
+### Quick Start
+1. Download the Excel template (via admin panel)
+2. Fill in purchase data with all required fields
+3. Upload proof of payment and AU assignment files (optional)
+4. Create new Tradeline Import record
+5. Upload Excel file
+6. Save to process the import
+7. Review validation log and processing results
+
+### Required Excel Columns
+- Customer Email, Customer Name, Customer Phone
+- Tradeline ID, Quantity, Unit Price
+- Discount Type, Discount Value
+- Cart Created Date, Payment Approved Date, AU Added Date
+- Payment Status, Approval Status, Client Tradeline Status
+- Expiry Date, Proof of Payment URL, Proof of AU URL
+
+### Access Permissions
+- **System Manager**: Full access to Tradeline Import
+- **Administrator**: Full access to Tradeline Import
+- **All other roles**: No access (admin-only feature)
+
+---
+
+## �📞 Support
 
 For API support and questions:
 - **Email**: support@rockettradeline.com
 - **Documentation**: https://docs.rockettradeline.com
 - **Status Page**: https://status.rockettradeline.com
+
+---
+
+## 📚 Additional Documentation
+
+- **[Purchase Flow Documentation](./TRADELINE_PURCHASE_FLOW.md)** - Complete technical flow from cart to active tradeline
+- **[Quick Reference Guide](./TRADELINE_QUICK_REFERENCE.md)** - API endpoints, validations, and cheat sheets
+- **[Mermaid Diagrams](./TRADELINE_MERMAID_DIAGRAMS.md)** - Visual flowcharts and architecture diagrams
+- **[Documentation Index](./DOCUMENTATION_INDEX.md)** - Navigation guide for all documentation
+- **[Manual Import Guide](./TRADELINE_IMPORT_README.md)** - Complete import system documentation
 
 ---
 

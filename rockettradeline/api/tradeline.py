@@ -14,10 +14,9 @@ def get_tradelines(limit=20, start=0, search=None, filters=None):
     try:
         query_filters = {"status": "Active"}
         
-        
-        
-        if search:
-            query_filters["bank"] = ["like", f"%{search}%"]
+        # Convert limit and start to integers
+        limit = int(limit) if limit else 20
+        start = int(start) if start else 0
         
         if filters:
             if isinstance(filters, str):
@@ -34,15 +33,70 @@ def get_tradelines(limit=20, start=0, search=None, filters=None):
             if filters.get("status"):
                 query_filters["status"] = filters["status"]
 
-        tradelines = frappe.get_all("Tradeline",
-            filters=query_filters,
-            fields=["name", "bank", "age_year", "age_month", "credit_limit", 
-                   "price", "max_spots", "remaining_spots", "closing_date", 
-                   "credit_utilization_rate", "status"],
-            limit=limit,
-            start=start,
-            order_by="creation desc"
-        )
+        # Handle search across multiple fields
+        if search:
+            search_term = f"%{search}%"
+            # Use SQL query for multi-field search
+            search_conditions = """(
+                t.name LIKE %(search)s OR
+                t.bank LIKE %(search)s OR
+                t.status LIKE %(search)s OR
+                t.closing_date LIKE %(search)s OR
+                CAST(t.credit_limit AS CHAR) LIKE %(search)s OR
+                CAST(t.price AS CHAR) LIKE %(search)s OR
+                CAST(t.age_year AS CHAR) LIKE %(search)s
+            )"""
+            
+            # Build WHERE clause for filters
+            where_conditions = ["t.status = 'Active'"]
+            sql_values = {"search": search_term}
+            
+            if filters:
+                if filters.get("min_price"):
+                    where_conditions.append("t.price >= %(min_price)s")
+                    sql_values["min_price"] = filters.get("min_price")
+                if filters.get("max_price"):
+                    where_conditions.append("t.price <= %(max_price)s")
+                    sql_values["max_price"] = filters.get("max_price")
+                if filters.get("min_credit_limit"):
+                    where_conditions.append("t.credit_limit >= %(min_credit_limit)s")
+                    sql_values["min_credit_limit"] = filters.get("min_credit_limit")
+                if filters.get("bank"):
+                    where_conditions.append("t.bank = %(bank)s")
+                    sql_values["bank"] = filters.get("bank")
+            
+            where_conditions.append(search_conditions)
+            where_clause = " AND ".join(where_conditions)
+            
+            # Get total count
+            count_query = f"""SELECT COUNT(*) as count FROM `tabTradeline` t WHERE {where_clause}"""
+            total_count = frappe.db.sql(count_query, sql_values, as_dict=True)[0].count
+            
+            # Get tradelines
+            sql_values["limit"] = limit
+            sql_values["start"] = start
+            tradelines_query = f"""SELECT 
+                t.name, t.bank, t.age_year, t.age_month, t.credit_limit,
+                t.price, t.max_spots, t.remaining_spots, t.closing_date,
+                t.credit_utilization_rate, t.status
+                FROM `tabTradeline` t
+                WHERE {where_clause}
+                ORDER BY t.creation DESC
+                LIMIT %(limit)s OFFSET %(start)s"""
+            tradelines = frappe.db.sql(tradelines_query, sql_values, as_dict=True)
+        else:
+            # Get total count for pagination
+            total_count = frappe.db.count("Tradeline", filters=query_filters)
+
+            tradelines = frappe.get_all("Tradeline",
+                filters=query_filters,
+                fields=["name", "bank", "age_year", "age_month", "credit_limit", 
+                       "price", "max_spots", "remaining_spots", "closing_date", 
+                       "credit_utilization_rate", "status"],
+                limit=limit,
+                start=start,
+                order_by="creation desc"
+            )
         
         # Get bank names
         for tradeline in tradelines:
@@ -50,9 +104,24 @@ def get_tradelines(limit=20, start=0, search=None, filters=None):
                 bank_doc = frappe.get_doc("Tradeline Bank", tradeline.bank)
                 tradeline.bank_name = bank_doc.bank_name
         
+        # Calculate pagination
+        current_page = (start // limit) + 1 if limit > 0 else 1
+        total_pages = (total_count + limit - 1) // limit if limit > 0 else 1
+        has_next = (start + limit) < total_count
+        has_previous = start > 0
+        
         return {
             "success": True,
-            "tradelines": tradelines
+            "tradelines": tradelines,
+            "pagination": {
+                "current_page": current_page,
+                "total_pages": total_pages,
+                "limit": limit,
+                "start": start,
+                "has_next": has_next,
+                "has_previous": has_previous,
+                "total_records": total_count
+            }
         }
     except Exception as e:
         return {
@@ -70,11 +139,9 @@ def get_tradelines_admin(limit=20, start=0, search=None, filters=None):
     try:
         query_filters = {"status": "Active"}
         
-        
-        
-        if search:
-            query_filters["bank"] = ["like", f"%{search}%"]
-            # query_filters["card_holder"] = ["like", f"%{search}%"]
+        # Convert limit and start to integers
+        limit = int(limit) if limit else 20
+        start = int(start) if start else 0
 
         if filters:
             if isinstance(filters, str):
@@ -91,15 +158,72 @@ def get_tradelines_admin(limit=20, start=0, search=None, filters=None):
             if filters.get("status"):
                 query_filters["status"] = filters["status"]
 
-        tradelines = frappe.get_all("Tradeline",
-            filters=query_filters,
-            fields=["name", "bank", "age_year", "age_month", "credit_limit", 
-                   "price", "max_spots", "remaining_spots", "closing_date", "commission","card_holder",
-                   "credit_utilization_rate", "status"],
-            limit=limit,
-            start=start,
-            order_by="creation desc"
-        )
+        # Handle search across multiple fields
+        if search:
+            search_term = f"%{search}%"
+            # Use SQL query for multi-field search
+            search_conditions = """(
+                t.name LIKE %(search)s OR
+                t.bank LIKE %(search)s OR
+                t.card_holder LIKE %(search)s OR
+                t.status LIKE %(search)s OR
+                t.closing_date LIKE %(search)s OR
+                CAST(t.credit_limit AS CHAR) LIKE %(search)s OR
+                CAST(t.price AS CHAR) LIKE %(search)s OR
+                CAST(t.commission AS CHAR) LIKE %(search)s OR
+                CAST(t.age_year AS CHAR) LIKE %(search)s
+            )"""
+            
+            # Build WHERE clause for filters
+            where_conditions = ["t.status = 'Active'"]
+            sql_values = {"search": search_term}
+            
+            if filters:
+                if filters.get("min_price"):
+                    where_conditions.append("t.price >= %(min_price)s")
+                    sql_values["min_price"] = filters.get("min_price")
+                if filters.get("max_price"):
+                    where_conditions.append("t.price <= %(max_price)s")
+                    sql_values["max_price"] = filters.get("max_price")
+                if filters.get("min_credit_limit"):
+                    where_conditions.append("t.credit_limit >= %(min_credit_limit)s")
+                    sql_values["min_credit_limit"] = filters.get("min_credit_limit")
+                if filters.get("bank"):
+                    where_conditions.append("t.bank = %(bank)s")
+                    sql_values["bank"] = filters.get("bank")
+            
+            where_conditions.append(search_conditions)
+            where_clause = " AND ".join(where_conditions)
+            
+            # Get total count
+            count_query = f"""SELECT COUNT(*) as count FROM `tabTradeline` t WHERE {where_clause}"""
+            total_count = frappe.db.sql(count_query, sql_values, as_dict=True)[0].count
+            
+            # Get tradelines
+            sql_values["limit"] = limit
+            sql_values["start"] = start
+            tradelines_query = f"""SELECT 
+                t.name, t.bank, t.age_year, t.age_month, t.credit_limit,
+                t.price, t.max_spots, t.remaining_spots, t.closing_date, t.commission, t.card_holder,
+                t.credit_utilization_rate, t.status
+                FROM `tabTradeline` t
+                WHERE {where_clause}
+                ORDER BY t.creation DESC
+                LIMIT %(limit)s OFFSET %(start)s"""
+            tradelines = frappe.db.sql(tradelines_query, sql_values, as_dict=True)
+        else:
+            # Get total count for pagination
+            total_count = frappe.db.count("Tradeline", filters=query_filters)
+
+            tradelines = frappe.get_all("Tradeline",
+                filters=query_filters,
+                fields=["name", "bank", "age_year", "age_month", "credit_limit", 
+                       "price", "max_spots", "remaining_spots", "closing_date", "commission","card_holder",
+                       "credit_utilization_rate", "status"],
+                limit=limit,
+                start=start,
+                order_by="creation desc"
+            )
         
         # Get bank names
         for tradeline in tradelines:
@@ -108,9 +232,24 @@ def get_tradelines_admin(limit=20, start=0, search=None, filters=None):
                 tradeline.bank_name = bank_doc.bank_name
             tradeline.card_holder_name = tradeline.card_holder
         
+        # Calculate pagination
+        current_page = (start // limit) + 1 if limit > 0 else 1
+        total_pages = (total_count + limit - 1) // limit if limit > 0 else 1
+        has_next = (start + limit) < total_count
+        has_previous = start > 0
+        
         return {
             "success": True,
-            "tradelines": tradelines
+            "tradelines": tradelines,
+            "pagination": {
+                "current_page": current_page,
+                "total_pages": total_pages,
+                "limit": limit,
+                "start": start,
+                "has_next": has_next,
+                "has_previous": has_previous,
+                "total_records": total_count
+            }
         }
     except Exception as e:
         return {
@@ -125,8 +264,10 @@ def get_tradeline_admin(tradeline_id):
     Get tradeline details
     """
     try:
-        
-        if not is_administrator(get_authenticated_user()):
+
+        user = get_authenticated_user()
+        role_profile_name = frappe.get_value("User", user, "role_profile_name")
+        if not is_administrator(user) or role_profile_name == "Tradeline Seller":
             frappe.throw(_("You do not have permission to access this resource"), frappe.PermissionError)
             
         tradeline = frappe.get_doc("Tradeline", tradeline_id)
@@ -134,8 +275,11 @@ def get_tradeline_admin(tradeline_id):
         # Get related data
         bank_doc = frappe.get_doc("Tradeline Bank", tradeline.bank) if tradeline.bank else None
         card_holder_doc = frappe.get_doc("Customer", tradeline.card_holder) if tradeline.card_holder else None
-        # mailing_address_doc = frappe.get_doc("Mailing Address", tradeline.mailing_address) if tradeline.mailing_address else None
-        
+        if tradeline.mailing_address:
+            mailing_address_doc = frappe.get_doc("Address", tradeline.mailing_address)
+        else:
+            mailing_address_doc = None
+
         result = {
             "name": tradeline.name,
             "bank": tradeline.bank,
@@ -159,7 +303,8 @@ def get_tradeline_admin(tradeline_id):
                 "email": card_holder_doc.email_id if card_holder_doc else None,
                 "phone": card_holder_doc.mobile_no if card_holder_doc else None
             } if card_holder_doc else None,
-            "mailing_address":card_holder_doc.primary_address if card_holder_doc else None 
+            "mailing_address": mailing_address_doc.name if mailing_address_doc else None,
+            "mailing_address_details": mailing_address_doc if mailing_address_doc else None
         }
         
         return {
@@ -201,6 +346,7 @@ def get_tradeline(tradeline_id):
             "credit_usage": tradeline.credit_usage,
             "status": tradeline.status,
             "balance": tradeline.balance,
+            # "mailing_address": mailing_address_doc.address if mailing_address_doc else None
     
         }
         
@@ -218,7 +364,7 @@ def get_tradeline(tradeline_id):
 @jwt_required()
 def create_tradeline(bank, age_year, credit_limit, price, max_spots, 
                     closing_date, card_holder, mailing_address, 
-                    age_month=None, credit_utilization_rate=None, commission=0.0,
+                    age_month=None, credit_utilization_rate=None, commission=0.0, credit_usage=None,
                     balance=None, status="Active"):
     """
     Create new tradeline
@@ -231,8 +377,23 @@ def create_tradeline(bank, age_year, credit_limit, price, max_spots,
                 "success": False,
                 "message": f"Permission denied {role_profile}"
             }
+            
+        if not card_holder:
+            card_holder = frappe.db.get_value("Customer", {"email_id": user}, "name")
+
+        # Validate age_month
+        if age_month is not None:
+            age_month_int = int(age_month)
+            if age_month_int < 1 or age_month_int > 12:
+                return {
+                    "success": False,
+                    "message": "Age month must be between 1 and 12"
+                }
 
         status = status if is_administrator(user) else "InActive"
+        has_signed_agreement = frappe.db.get_value("Customer", dict(email_id=user), "has_signed_agreement")
+        if not has_signed_agreement:
+            frappe.throw(_("You must sign the authorized user agreement before creating a tradeline."), frappe.PermissionError)
 
         tradeline = frappe.get_doc({
             "doctype": "Tradeline",
@@ -240,6 +401,7 @@ def create_tradeline(bank, age_year, credit_limit, price, max_spots,
             "age_year": age_year,
             "age_month": age_month or 0,
             "credit_limit": credit_limit,
+            "credit_usage": credit_usage or 0,
             "price": price,
             "max_spots": max_spots,
             "remaining_spots": max_spots,
@@ -375,25 +537,57 @@ def change_tradeline_status(tradeline_id, status):
 # Supporting APIs
 
 @frappe.whitelist(allow_guest=True)
-def get_banks():
+def get_banks(limit=None, start=None):
     """
-    Get list of banks
+    Get list of banks with optional pagination
     """
     try:
-        banks = frappe.get_all("Tradeline Bank", 
-            fields=["name", "bank_name", "image", "status"],
-            order_by="bank_name asc"
-        )
+        # Get total count
+        total_count = frappe.db.count("Tradeline Bank")
+        
+        # Build query parameters
+        query_params = {
+            "fields": ["name", "bank_name", "image", "status"],
+            "order_by": "bank_name asc"
+        }
+        
+        # Add pagination if limit and start are provided
+        if limit is not None and start is not None:
+            query_params["limit"] = int(limit)
+            query_params["start"] = int(start)
+        
+        banks = frappe.get_all("Tradeline Bank", **query_params)
         
         # Set default status if not available
         for bank in banks:
             if not hasattr(bank, 'status') or not bank.status:
                 bank.status = 'active'
-                
-        return {
+        
+        result = {
             "success": True,
             "banks": banks
         }
+        
+        # Add pagination if limit and start were provided
+        if limit is not None and start is not None:
+            limit = int(limit)
+            start = int(start)
+            current_page = (start // limit) + 1 if limit > 0 else 1
+            total_pages = (total_count + limit - 1) // limit if limit > 0 else 1
+            has_next = (start + limit) < total_count
+            has_previous = start > 0
+            
+            result["pagination"] = {
+                "current_page": current_page,
+                "total_pages": total_pages,
+                "limit": limit,
+                "start": start,
+                "has_next": has_next,
+                "has_previous": has_previous,
+                "total_records": total_count
+            }
+                
+        return result
     except Exception as e:
         return {
             "success": False,
@@ -403,36 +597,109 @@ def get_banks():
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def create_bank(bank_name):
+def create_bank(bank_name, image=None):
     """
-    Create new bank
+    Create new bank with optional image upload
     """
-    user = frappe.session.user
-    if not user or not frappe.has_permission("Tradeline Bank", "create"):
+    try:
+        user = frappe.session.user
+        if not user or not frappe.has_permission("Tradeline Bank", "create"):
+            return {
+                "success": False,
+                "message": "Permission denied"
+            }
+        
+        # Handle image upload first
+        image_url = None
+        if frappe.request and hasattr(frappe.request, 'files') and frappe.request.files:
+            if 'image' in frappe.request.files:
+                uploaded_file = frappe.request.files['image']
+                if uploaded_file and uploaded_file.filename:
+                    try:
+                        from frappe.utils.file_manager import save_file
+                        from werkzeug.utils import secure_filename
+                        import os
+                        
+                        # Generate secure filename
+                        filename = secure_filename(uploaded_file.filename)
+                        
+                        # Save file as public
+                        file_doc = save_file(
+                            fname=filename,
+                            content=uploaded_file.read(),
+                            dt=None,  # Not attached to any specific document initially
+                            dn=None,
+                            folder='Home',
+                            is_private=0  # Make it public
+                        )
+                        image_url = file_doc.file_url
+                        
+                    except Exception as e:
+                        frappe.log_error(f"Image upload error during bank creation: {str(e)}")
+                        return {
+                            "success": False,
+                            "message": f"Failed to upload image: {str(e)}"
+                        }
+        elif image and isinstance(image, str):
+            # Handle image as URL string
+            image_url = image
+        
+        # Create bank document
+        bank_data = {
+            "doctype": "Tradeline Bank",
+            "bank_name": bank_name
+        }
+        
+        if image_url:
+            bank_data["image"] = image_url
+        
+        bank = frappe.get_doc(bank_data)
+        bank.insert()
+        
+        # Update file attachment after bank is created
+        if image_url and frappe.request and hasattr(frappe.request, 'files'):
+            try:
+                # Find the file document and attach it to the bank
+                file_docs = frappe.get_all("File", 
+                    filters={"file_url": image_url},
+                    fields=["name"],
+                    limit=1
+                )
+                if file_docs:
+                    file_doc = frappe.get_doc("File", file_docs[0].name)
+                    file_doc.attached_to_doctype = "Tradeline Bank"
+                    file_doc.attached_to_name = bank.name
+                    file_doc.attached_to_field = "image"
+                    file_doc.save(ignore_permissions=True)
+            except Exception as e:
+                frappe.log_error(f"Error attaching file to bank: {str(e)}")
+        
+        frappe.db.commit()
+        
+        return {
+            "success": True,
+            "message": "Bank created successfully",
+            "bank": {
+                "name": bank.name,
+                "bank_name": bank.bank_name,
+                "image": bank.image if hasattr(bank, 'image') else None
+            }
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Bank creation failed: {str(e)}")
         return {
             "success": False,
-            "message": "Permission denied"
+            "message": str(e)
         }
-    bank = frappe.get_doc({
-        "doctype": "Tradeline Bank",
-        "bank_name": bank_name
-    })
-    bank.insert()
-    return {
-        "success": True,
-        "message": "Bank created successfully",
-        "bank": {
-            "name": bank.name,
-            "bank_name": bank.bank_name
-        }
-    }
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def update_bank(bank_id, bank_name=None, status=None, image=None):
+def update_bank(bank_name=None, status=None, image=None):
     """
-    Update existing bank details
+    Update existing bank details with optional image upload
     """
+    bank_id = bank_name
     try:
         user = frappe.session.user
         if not user or not frappe.has_permission("Tradeline Bank", "write"):
@@ -441,13 +708,15 @@ def update_bank(bank_id, bank_name=None, status=None, image=None):
                 "message": "Permission denied"
             }
         
-        # Get the bank document
-        bank = frappe.get_doc("Tradeline Bank", bank_id)
-        if not bank:
+        # Check if bank exists
+        if not frappe.db.exists("Tradeline Bank", bank_id):
             return {
                 "success": False,
                 "message": "Bank not found"
             }
+        
+        # Get the bank document
+        bank = frappe.get_doc("Tradeline Bank", bank_id)
         
         # Handle file upload for image
         file_url = None
@@ -456,20 +725,26 @@ def update_bank(bank_id, bank_name=None, status=None, image=None):
                 uploaded_file = frappe.request.files['image']
                 if uploaded_file and uploaded_file.filename:
                     try:
-                        # Save the uploaded file
-                        file_doc = frappe.get_doc({
-                            "doctype": "File",
-                            "file_name": uploaded_file.filename,
-                            "is_private": 0,  # Make public for bank images
-                            "content": uploaded_file.read(),
-                            "attached_to_doctype": "Tradeline Bank",
-                            "attached_to_name": bank_id,
-                            "attached_to_field": "image"
-                        })
-                        file_doc.save(ignore_permissions=True)
+                        from frappe.utils.file_manager import save_file
+                        from werkzeug.utils import secure_filename
+                        import os
+                        
+                        # Generate secure filename
+                        filename = secure_filename(uploaded_file.filename)
+                        
+                        # Save file as public
+                        file_doc = save_file(
+                            fname=filename,
+                            content=uploaded_file.read(),
+                            dt="Tradeline Bank",
+                            dn=bank_id,
+                            folder='Home',
+                            is_private=0  # Make it public
+                        )
                         file_url = file_doc.file_url
+                        
                     except Exception as e:
-                        frappe.log_error(f"File upload error: {str(e)}")
+                        frappe.log_error(f"Image upload error during bank update: {str(e)}")
                         return {
                             "success": False,
                             "message": f"Failed to upload image: {str(e)}"
@@ -523,10 +798,10 @@ def update_bank(bank_id, bank_name=None, status=None, image=None):
             "success": False,
             "message": str(e)
         }
-
+    
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def delete_bank(bank_id):
+def delete_bank(bank_name):
     """
     Delete a bank
     """
@@ -539,14 +814,14 @@ def delete_bank(bank_id):
             }
         
         # Check if bank exists
-        if not frappe.db.exists("Tradeline Bank", bank_id):
+        if not frappe.db.exists("Tradeline Bank", bank_name):
             return {
                 "success": False,
                 "message": "Bank not found"
             }
         
         # Check if bank is being used by any tradelines
-        tradelines_using_bank = frappe.db.count("Tradeline", filters={"bank": bank_id})
+        tradelines_using_bank = frappe.db.count("Tradeline", filters={"bank": bank_name})
         if tradelines_using_bank > 0:
             return {
                 "success": False,
@@ -554,7 +829,7 @@ def delete_bank(bank_id):
             }
         
         # Get bank details before deletion for response
-        bank = frappe.get_doc("Tradeline Bank", bank_id)
+        bank = frappe.get_doc("Tradeline Bank", bank_name)
         bank_name = bank.bank_name
         
         # Delete associated files if any
@@ -562,7 +837,7 @@ def delete_bank(bank_id):
             files = frappe.get_all("File", 
                 filters={
                     "attached_to_doctype": "Tradeline Bank",
-                    "attached_to_name": bank_id
+                    "attached_to_name": bank_name
                 },
                 fields=["name"]
             )
@@ -572,14 +847,14 @@ def delete_bank(bank_id):
             frappe.log_error(f"Error deleting associated files: {str(file_error)}")
         
         # Delete the bank
-        frappe.delete_doc("Tradeline Bank", bank_id)
+        frappe.delete_doc("Tradeline Bank", bank_name, ignore_permissions=True)
         frappe.db.commit()
         
         return {
             "success": True,
             "message": f"Bank '{bank_name}' deleted successfully",
             "deleted_bank": {
-                "id": bank_id,
+                "name": bank_name,
                 "bank_name": bank_name
             }
         }
@@ -1092,13 +1367,13 @@ def get_seller_tradelines(limit=20, start=0, search=None, filters=None):
             "data": tradelines,
             "message": "Tradelines retrieved successfully",
             "pagination": {
-                "total": total_count,
                 "current_page": current_page,
                 "total_pages": total_pages,
                 "limit": limit,
                 "start": start,
                 "has_next": has_next,
-                "has_previous": has_previous
+                "has_previous": has_previous,
+                "total_records": total_count
             }
         }
     except Exception as e:

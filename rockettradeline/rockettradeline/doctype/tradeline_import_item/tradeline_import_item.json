@@ -1,0 +1,429 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-10-12 14:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "customer_exists",
+  "existing_customer",
+  "customer_email",
+  "customer_name",
+  "customer_phone",
+  "customer_dob",
+  "column_break_customer",
+  "user_password",
+  "role_profile",
+  "account_manager",
+  "address_section",
+  "address_line1",
+  "address_line2",
+  "city",
+  "column_break_address",
+  "state",
+  "pincode",
+  "country",
+  "customer_validation_section",
+  "has_signed_agreement",
+  "is_questionnaire_filled",
+  "column_break_validation",
+  "agreement_signed_date",
+  "questionnaire_filled_date",
+  "tradeline_section",
+  "tradeline_id",
+  "tradeline_name",
+  "quantity",
+  "unit_price",
+  "column_break_tradeline",
+  "discount_type",
+  "discount_value",
+  "date_section",
+  "cart_created_date",
+  "payment_approved_date",
+  "column_break_dates",
+  "au_added_date",
+  "expiry_date",
+  "status_section",
+  "payment_status",
+  "approval_status",
+  "column_break_status",
+  "client_tradeline_status",
+  "attachment_section",
+  "proof_of_payment_url",
+  "proof_of_au_url",
+  "processing_section",
+  "import_status",
+  "error_message",
+  "column_break_processing",
+  "created_user_id",
+  "created_customer_id",
+  "created_cart_id",
+  "created_payment_id",
+  "created_tradeline_id"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "fieldname": "customer_exists",
+   "fieldtype": "Check",
+   "label": "Customer Already Exists?"
+  },
+  {
+   "depends_on": "eval:doc.customer_exists==1",
+   "fieldname": "existing_customer",
+   "fieldtype": "Link",
+   "label": "Select Existing Customer",
+   "options": "Customer"
+  },
+  {
+   "depends_on": "eval:doc.customer_exists==0",
+   "fieldname": "customer_email",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Customer Email",
+   "mandatory_depends_on": "eval:doc.customer_exists==0",
+   "options": "Email"
+  },
+  {
+   "depends_on": "eval:doc.customer_exists==0",
+   "fieldname": "customer_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Customer Name",
+   "mandatory_depends_on": "eval:doc.customer_exists==0"
+  },
+  {
+  "depends_on": "eval:doc.customer_exists==0",
+  "fieldname": "customer_phone",
+  "fieldtype": "Data",
+  "label": "Customer Phone",
+  "options": "Phone"
+  },
+  {
+   "depends_on": "eval:doc.customer_exists==0",
+   "fieldname": "customer_dob",
+   "fieldtype": "Date",
+   "label": "Date of Birth"
+  },
+  {
+   "fieldname": "column_break_customer",
+   "fieldtype": "Column Break"
+  },
+  {
+  "depends_on": "eval:doc.customer_exists==0",
+  "description": "Password for new user account (if user doesn't exist). Leave blank to auto-generate.",
+  "fieldname": "user_password",
+  "fieldtype": "Password",
+  "label": "User Password"
+  },
+  {
+  "depends_on": "eval:doc.customer_exists==0",
+  "description": "Select a role profile to assign to the new user account",
+  "fieldname": "role_profile",
+  "fieldtype": "Link",
+  "label": "Role Profile",
+  "options": "Role Profile"
+  },
+  {
+   "depends_on": "eval:doc.customer_exists==0",
+   "description": "Select a user to be set as Account Manager for the customer",
+   "fieldname": "account_manager",
+   "fieldtype": "Link",
+   "label": "Account Manager",
+   "options": "User"
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.customer_exists==0",
+   "fieldname": "address_section",
+   "fieldtype": "Section Break",
+   "label": "Address Details"
+  },
+  {
+   "depends_on": "eval:doc.customer_exists==0",
+   "fieldname": "address_line1",
+   "fieldtype": "Data",
+   "label": "Address Line 1"
+  },
+  {
+   "depends_on": "eval:doc.customer_exists==0",
+   "fieldname": "address_line2",
+   "fieldtype": "Data",
+   "label": "Address Line 2"
+  },
+  {
+   "depends_on": "eval:doc.customer_exists==0",
+   "fieldname": "city",
+   "fieldtype": "Data",
+   "label": "City"
+  },
+  {
+   "fieldname": "column_break_address",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.customer_exists==0",
+   "fieldname": "state",
+   "fieldtype": "Data",
+   "label": "State/Province"
+  },
+  {
+   "depends_on": "eval:doc.customer_exists==0",
+   "fieldname": "pincode",
+   "fieldtype": "Data",
+   "label": "ZIP Code"
+  },
+  {
+   "default": "United States",
+   "depends_on": "eval:doc.customer_exists==0",
+   "fieldname": "country",
+   "fieldtype": "Link",
+   "label": "Country",
+   "options": "Country"
+  },
+  {
+   "fieldname": "customer_validation_section",
+   "fieldtype": "Section Break",
+   "label": "Customer Validation"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.customer_exists==0",
+   "description": "Customer has signed the agreement (default checked for historical imports)",
+   "fieldname": "has_signed_agreement",
+   "fieldtype": "Check",
+   "label": "Has Signed Agreement"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.customer_exists==0",
+   "description": "Customer has filled the questionnaire (default checked for historical imports)",
+   "fieldname": "is_questionnaire_filled",
+   "fieldtype": "Check",
+   "label": "Is Questionnaire Filled"
+  },
+  {
+   "fieldname": "column_break_validation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.customer_exists==0",
+   "description": "Date when customer signed the agreement",
+   "fieldname": "agreement_signed_date",
+   "fieldtype": "Datetime",
+   "label": "Agreement Signed Date"
+  },
+  {
+   "depends_on": "eval:doc.customer_exists==0",
+   "description": "Date when customer filled the questionnaire",
+   "fieldname": "questionnaire_filled_date",
+   "fieldtype": "Datetime",
+   "label": "Questionnaire Filled Date"
+  },
+  {
+   "fieldname": "tradeline_section",
+   "fieldtype": "Section Break",
+   "label": "Tradeline Details"
+  },
+  {
+   "fieldname": "tradeline_id",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Tradeline",
+   "options": "Tradeline",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "tradeline_id.bank",
+   "fieldname": "tradeline_name",
+   "fieldtype": "Data",
+   "label": "Tradeline Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "quantity",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Quantity",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "tradeline_id.price",
+   "fieldname": "unit_price",
+   "fieldtype": "Currency",
+   "label": "Unit Price",
+   "precision": "2",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_tradeline",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "discount_type",
+   "fieldtype": "Select",
+   "label": "Discount Type",
+   "options": "\nPercentage\nAmount"
+  },
+  {
+   "depends_on": "discount_type",
+   "fieldname": "discount_value",
+   "fieldtype": "Float",
+   "label": "Discount Value",
+   "precision": "2"
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "label": "Total Amount",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "date_section",
+   "fieldtype": "Section Break",
+   "label": "Dates"
+  },
+  {
+   "fieldname": "cart_created_date",
+   "fieldtype": "Datetime",
+   "label": "Cart Created Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "payment_approved_date",
+   "fieldtype": "Datetime",
+   "label": "Payment Approved Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_dates",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "au_added_date",
+   "fieldtype": "Datetime",
+   "label": "AU Added Date"
+  },
+  {
+   "fieldname": "expiry_date",
+   "fieldtype": "Date",
+   "label": "Expiry Date"
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "fieldname": "payment_status",
+   "fieldtype": "Select",
+   "label": "Payment Status",
+   "options": "Pending\nCompleted\nApproved\nVerified",
+   "reqd": 1
+  },
+  {
+   "fieldname": "approval_status",
+   "fieldtype": "Select",
+   "label": "Approval Status",
+   "options": "Pending Approval\nApproved\nRejected",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "client_tradeline_status",
+   "fieldtype": "Select",
+   "label": "Client Tradeline Status",
+   "options": "Pending AU\nActive\nInactive\nCompleted\nExpired",
+   "reqd": 1
+  },
+  {
+   "fieldname": "attachment_section",
+   "fieldtype": "Section Break",
+   "label": "Attachments"
+  },
+  {
+   "description": "Upload proof of payment file",
+   "fieldname": "proof_of_payment_url",
+   "fieldtype": "Attach",
+   "label": "Proof of Payment"
+  },
+  {
+   "description": "Upload proof of AU assignment file",
+   "fieldname": "proof_of_au_url",
+   "fieldtype": "Attach",
+   "label": "Proof of AU"
+  },
+  {
+   "fieldname": "processing_section",
+   "fieldtype": "Section Break",
+   "label": "Processing Status"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "import_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Import Status",
+   "options": "Pending\nSuccess\nFailed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Text",
+   "label": "Error Message",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_processing",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "created_user_id",
+   "fieldtype": "Data",
+   "label": "Created User ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "created_customer_id",
+   "fieldtype": "Data",
+   "label": "Created Customer ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "created_cart_id",
+   "fieldtype": "Data",
+   "label": "Created Cart ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "created_payment_id",
+   "fieldtype": "Data",
+   "label": "Created Payment ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "created_tradeline_id",
+   "fieldtype": "Data",
+   "label": "Created Client Tradeline ID",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-10-12 14:00:00",
+ "modified_by": "Administrator",
+ "module": "RocketTradeLine",
+ "name": "Tradeline Import Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
