@@ -208,7 +208,8 @@ scheduler_events = {
 		"rockettradeline.tasks.check_and_send_closing_date_notifications",
 		"rockettradeline.tasks.check_and_send_expiry_reminders",
 		"rockettradeline.tasks.check_and_resend_pending_au_emails",
-		"rockettradeline.tasks.check_and_send_cardholder_removal_notifications"
+		"rockettradeline.tasks.check_and_send_cardholder_removal_notifications",
+		"rockettradeline.tasks.check_and_send_removal_confirmations"
 	],
 	"hourly": [
 		"rockettradeline.tasks.check_and_expire_client_tradelines"

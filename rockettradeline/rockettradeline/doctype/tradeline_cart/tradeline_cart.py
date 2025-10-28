@@ -509,28 +509,18 @@ class TradelineCart(Document):
                         tradeline_bank = item.tradeline_name or tradeline_doc.bank
                         credit_limit = tradeline_doc.credit_limit or 0
                         
-                        # Get closing date for reporting date calculation
+                        # Get closing date and format with suffix
                         closing_date = tradeline_doc.closing_date or 15
                         
-                        # Calculate the next closing date
-                        # closing_date is the actual day number (e.g., 5, 10, 15)
-                        # If today's day is less than closing_date, next closing is this month
-                        # If today's day is >= closing_date, next closing is next month
-                        today = frappe.utils.getdate(frappe.utils.today())
-                        current_day = today.day
+                        # Add ordinal suffix (st, nd, rd, th)
+                        def get_ordinal_suffix(day):
+                            if 10 <= day % 100 <= 20:
+                                suffix = 'th'
+                            else:
+                                suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
+                            return f"{day}{suffix}"
                         
-                        from datetime import date
-                        if current_day < closing_date:
-                            # Next closing date is this month
-                            next_closing_date = date(today.year, today.month, closing_date)
-                        else:
-                            # Next closing date is next month
-                            next_month = frappe.utils.add_months(today, 1)
-                            next_month_date = frappe.utils.getdate(next_month)
-                            next_closing_date = date(next_month_date.year, next_month_date.month, closing_date)
-                        
-                        # Reporting date is 61 days after the next closing date
-                        reporting_date = frappe.utils.add_days(next_closing_date, 61)
+                        reporting_date = get_ordinal_suffix(closing_date)
                         
                         # Prepare template parameters for this specific item
                         template_params = {

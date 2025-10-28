@@ -416,7 +416,7 @@ def validate_token_auth(token):
 
 def get_email_header(logo_height="60px", logo_width="200px"):
     """Generate consistent email header with Rocket Tradeline branding"""
-    site_url = frappe.utils.get_url()
+    site_url = "https://api.rockettradeline.com"
     site_logo = f"{site_url}/assets/rockettradeline/logo.png"
     
     return f"""
@@ -436,7 +436,7 @@ def get_email_header(logo_height="60px", logo_width="200px"):
 
 def get_email_footer(recipient_email):
     """Generate consistent email footer with Rocket Tradeline branding"""
-    site_url = frappe.utils.get_url()
+    site_url = "https://api.rockettradeline.com"
     site_logo = f"{site_url}/assets/rockettradeline/logo.png"
     
     # Get social media links from Site Content doctype
@@ -1995,6 +1995,26 @@ def broker_create_client(email, full_name, phone=None, ssn=None,
         if not address_line1 or not city or not state or not zipcode:
             frappe.local.response.http_status_code = 400
             return {"success": False, "message": "Complete address (line1, city, state, zipcode) is required"}
+
+        # Validate required file uploads
+        files = frappe.request.files or {}
+        
+        # Check for required files
+        dl_front = files.get("dl_front")
+        proof_of_residence = files.get("proof_of_address") or files.get("proof_of_residence")
+        social_security_number = files.get("social_security_number")
+        
+        if not dl_front:
+            frappe.local.response.http_status_code = 400
+            return {"success": False, "message": "Driver's license front (dl_front) file is required"}
+        
+        if not proof_of_residence:
+            frappe.local.response.http_status_code = 400
+            return {"success": False, "message": "Proof of residence (proof_of_residence) file is required"}
+        
+        if not social_security_number:
+            frappe.local.response.http_status_code = 400
+            return {"success": False, "message": "Social security number (social_security_number) file is required"}
 
         # Default role profile for broker-created clients is Tradeline Buyer
         role_profile_name = role_profile_name or "Tradeline Buyer"

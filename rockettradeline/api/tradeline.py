@@ -457,7 +457,7 @@ def update_tradeline(tradeline_id, **kwargs):
         for field, value in kwargs.items():
             if field in allowed_fields and value is not None:
                 if field == "max_spots" and int(value) < tradeline.purchased_spots:
-                    active_slots = frappe.db.count("Client Tradeline", filters={"tradeline": tradeline.name, "status": "Active"})
+                    active_slots = frappe.db.count("Client Tradelines", filters={"tradeline": tradeline.name, "status": "Active"})
                     setattr(tradeline,'remaining_spots', value - active_slots)
                     frappe.throw(_("Max spots cannot be less than purchased spots"), frappe.ValidationError)
                 setattr(tradeline, field, value)

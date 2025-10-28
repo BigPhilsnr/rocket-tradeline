@@ -11,10 +11,39 @@ from rockettradeline.api.auth import jwt_required, get_current_user, get_authent
 from .utils import is_administrator
 
 def verify_cart_access(cart, current_user):
-    """Verify if user has access to cart (owner or administrator)"""
+    """Verify if user has access to cart (owner, administrator, account manager, or seller)"""
+    # Check if user is the cart owner
+    if cart.user_id == current_user:
+        return True
+    
+    # Check if user is an administrator
+    if is_administrator(current_user):
+        return True
+    
+    # Check if user is the account manager
     account_manager = frappe.db.get_value('Customer', dict(email_id=cart.user_id), 'account_manager')
-    # frappe.throw(f'Account Manager: {account_manager} Current User: {current_user}')
-    return cart.user_id == current_user or is_administrator(current_user) or (account_manager and account_manager == current_user)
+    if account_manager and account_manager == current_user:
+        return True
+    
+    # Check if user is a seller (cardholder) of any tradeline in the cart
+    if cart.items:
+        for item in cart.items:
+            try:
+                # Get the tradeline
+                tradeline = frappe.get_doc('Tradeline', item.tradeline)
+                
+                # Get the cardholder's email
+                if tradeline.card_holder:
+                    cardholder_email = frappe.db.get_value('Customer', tradeline.card_holder, 'email_id')
+                    
+                    # If current user is the cardholder, grant access
+                    if cardholder_email == current_user:
+                        return True
+            except Exception as e:
+                frappe.log_error(f"Error checking seller access for tradeline {item.tradeline}: {str(e)}", "Cart Access Verification")
+                continue
+    
+    return False
 
 def validate_cart_slots(cart):
     """
@@ -142,7 +171,7 @@ def get_cart(cart_id=None, status='Active Only'):
             # Get specific cart
             cart = frappe.get_doc('Tradeline Cart', cart_id)
             # Verify ownership or admin access
-            if not verify_cart_access(cart, current_user):
+            if not verify_cart_access(cart, current_user) :
                 return {'success': False, 'error': 'Access denied'}
         else:
             # Get active cart

@@ -1234,3 +1234,211 @@ def get_pending_au_tradelines(hours_threshold=23):
         
     except Exception as e:
         frappe.throw(f"Failed to fetch pending AU tradelines: {str(e)}")
+
+
+def check_and_send_removal_confirmations():
+    """
+    Cron job to check for client tradelines that expired in the last 24 hours
+    and send removal confirmation notifications to customers (authorized users)
+    Runs daily to ensure customers receive confirmation of their removal from tradelines
+    """
+    try:
+        print("Starting removal confirmation notifications check...")
+        
+        # Get yesterday's date (tradelines that expired yesterday)
+        yesterday = add_days(getdate(), -1)
+        
+        print(f"Checking for tradelines that expired on {yesterday}")
+        
+        # Find all client tradelines that expired yesterday
+        expired_query = """
+            SELECT 
+                ct.name as client_tradeline_id,
+                ct.customer,
+                ct.customer_name,
+                ct.tradeline,
+                ct.tradeline_name,
+                ct.expiry_date,
+                ct.total_amount,
+                ct.quantity,
+                ct.completion_date,
+                ct.is_external,
+                t.name as tradeline_id,
+                t.bank,
+                tb.bank_name,
+                t.card_holder,
+                c.email_id as customer_email,
+                COALESCE(c.account_manager, c.email_id) as customer_email_recipient,
+                c.customer_name as customer_full_name,
+                ch.email_id as cardholder_email,
+                ch.customer_name as cardholder_name,
+                t.credit_limit,
+                t.age_year,
+                t.age_month,
+                t.closing_date,
+                t.price as tradeline_price
+            FROM `tabClient Tradelines` ct
+            LEFT JOIN `tabTradeline` t ON ct.tradeline = t.name
+            LEFT JOIN `tabTradeline Bank` tb ON t.bank = tb.name
+            LEFT JOIN `tabCustomer` c ON ct.customer = c.name
+            LEFT JOIN `tabCustomer` ch ON t.card_holder = ch.name
+            WHERE ct.expiry_date = %s
+            AND (ct.is_external IS NULL OR ct.is_external = 0)
+            ORDER BY ct.customer ASC
+        """
+        
+        expired_tradelines = frappe.db.sql(expired_query, (yesterday,), as_dict=True)
+        
+        if not expired_tradelines:
+            print(f"No tradelines expired on {yesterday}.")
+            return {
+                "success": True,
+                "message": f"No tradelines expired on {yesterday}",
+                "processed": 0
+            }
+        
+        print(f"Found {len(expired_tradelines)} tradelines that expired on {yesterday}")
+        
+        processed_count = 0
+        email_failures = []
+        
+        for tradeline in expired_tradelines:
+            try:
+                # Skip if no customer email
+                if not tradeline.customer_email_recipient:
+                    print(f"Warning: No email found for customer {tradeline.customer} - skipping")
+                    continue
+                
+                # Send removal confirmation notification to customer (authorized user)
+                send_removal_confirmation_notification(tradeline)
+                processed_count += 1
+                print(f"Removal confirmation sent to {tradeline.customer_email_recipient} for tradeline {tradeline.client_tradeline_id}")
+                
+            except Exception as e:
+                error_msg = f"Failed to send removal confirmation for {tradeline.client_tradeline_id}: {str(e)}"
+                frappe.log_error(error_msg, "Removal Confirmation Notification Error")
+                email_failures.append({"tradeline": tradeline.client_tradeline_id, "error": str(e)})
+        
+        # Commit all changes
+        frappe.db.commit()
+        
+        result = {
+            "success": True,
+            "message": f"Sent removal confirmation notifications for {processed_count} tradelines",
+            "processed": processed_count,
+            "total_found": len(expired_tradelines),
+            "expiry_date": str(yesterday)
+        }
+        
+        if email_failures:
+            result["email_failures"] = email_failures
+        
+        print(f"Removal confirmation notifications completed. Sent {processed_count} notifications.")
+        return result
+        
+    except Exception as e:
+        error_msg = f"Removal confirmation notifications cron job failed: {str(e)}"
+        frappe.log_error(error_msg, "Removal Confirmation Notifications Cron Job Error")
+        print(error_msg)
+        return {"success": False, "error": str(e)}
+
+
+def send_removal_confirmation_notification(tradeline):
+    """
+    Send removal confirmation notification email to customer (authorized user)
+    """
+    try:
+        if not tradeline.customer_email_recipient:
+            return
+        
+        # Format credit limit
+        credit_limit_formatted = f"${float(tradeline.credit_limit or 0):,.0f}" if tradeline.credit_limit else "$0"
+        
+        # Prepare template parameters
+        template_params = {
+            "customer_name": tradeline.customer_full_name or tradeline.customer_name or "Customer",
+            "authorized_user_name": tradeline.customer_full_name or tradeline.customer_name or "Customer",
+            "full_name": tradeline.customer_full_name or tradeline.customer_name or "Customer",
+            "bank_name": tradeline.bank_name or tradeline.bank or "N/A",
+            "year_opened": str(tradeline.age_year or 0),
+            "credit_limit": credit_limit_formatted,
+            "tradeline_description": f"{tradeline.bank_name or tradeline.bank or 'N/A'} {tradeline.age_year or 0} {credit_limit_formatted}"
+        }
+        
+        # Send email using Email Template Custom system
+        send_email_template(
+            template_name="Removal Confirmation Notification",
+            recipients=[tradeline.customer_email_recipient],
+            parameters=template_params
+        )
+        
+        print(f"Removal confirmation notification sent to {tradeline.customer_email_recipient}")
+        
+    except Exception as e:
+        frappe.log_error(
+            f"Failed to send removal confirmation notification to {tradeline.customer_email_recipient}: {str(e)}", 
+            "Removal Confirmation Notification Error"
+        )
+        raise e
+
+
+@frappe.whitelist()
+def manual_check_removal_confirmations():
+    """
+    Manual trigger for removal confirmation notifications check (for testing/admin use)
+    """
+    try:
+        current_user = frappe.session.user
+        if current_user != "Administrator" and "System Manager" not in frappe.get_roles(current_user):
+            frappe.throw("Permission Denied. Only Administrators and System Managers can trigger this task.")
+        
+        result = check_and_send_removal_confirmations()
+        return result
+        
+    except Exception as e:
+        frappe.throw(f"Manual removal confirmation check failed: {str(e)}")
+
+
+@frappe.whitelist()
+def get_recently_removed_tradelines(days_back=1):
+    """
+    Get client tradelines that expired within specified days (for removal confirmation monitoring)
+    """
+    try:
+        current_user = frappe.session.user
+        if current_user != "Administrator" and "System Manager" not in frappe.get_roles(current_user):
+            frappe.throw("Permission Denied. Only Administrators and System Managers can access this.")
+        
+        target_date = add_days(getdate(), -int(days_back))
+        
+        expired_query = """
+            SELECT 
+                ct.name,
+                ct.customer_name,
+                ct.tradeline_name,
+                ct.expiry_date,
+                ct.status,
+                c.email_id as customer_email,
+                COALESCE(c.account_manager, c.email_id) as email_recipient,
+                DATE(ct.expiry_date) as expiry_date_formatted,
+                DATEDIFF(CURDATE(), DATE(ct.expiry_date)) as days_since_expiry
+            FROM `tabClient Tradelines` ct
+            LEFT JOIN `tabCustomer` c ON ct.customer = c.name
+            WHERE ct.expiry_date >= %s
+            AND ct.expiry_date IS NOT NULL
+            AND (ct.is_external IS NULL OR ct.is_external = 0)
+            ORDER BY ct.expiry_date DESC
+        """
+        
+        expired_tradelines = frappe.db.sql(expired_query, (target_date,), as_dict=True)
+        
+        return {
+            "success": True,
+            "expired_tradelines": expired_tradelines,
+            "total": len(expired_tradelines),
+            "days_back": int(days_back),
+            "target_date": str(target_date)
+        }
+        
+    except Exception as e:
+        frappe.throw(f"Failed to fetch recently expired tradelines: {str(e)}")
