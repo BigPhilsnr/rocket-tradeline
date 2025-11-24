@@ -53,61 +53,38 @@ def validate_cart_slots(cart):
     if not cart.items:
         return {'success': False, 'error': 'Cart is empty'}
     
-    validation_errors = []
+    # Use centralized availability check
+    from rockettradeline.utils.tradeline_spots import check_cart_availability
     
-    for item in cart.items:
-        try:
-            # Get fresh tradeline data from database
-            tradeline = frappe.get_doc('Tradeline', item.tradeline)
-            
-            # Check if tradeline is still active
-            if tradeline.status != 'Active':
-                validation_errors.append({
-                    'tradeline': item.tradeline,
-                    'tradeline_name': item.tradeline_name,
-                    'error': f'Tradeline is no longer active (Status: {tradeline.status})'
-                })
-                continue
-            
-            # Calculate current remaining spots
-            # Get all active/pending client tradelines for this tradeline (excluding current cart)
-            active_client_tradelines = frappe.get_all('Client Tradelines',
-                filters={
-                    'tradeline': item.tradeline,
-                    'status': ['in', ['Active', 'Inactive', 'Pending AU', 'Refund Requested']]
-                },
-                fields=['quantity']
-            )
-            
-            total_purchased = sum(int(ct.quantity or 0) for ct in active_client_tradelines)
-            current_remaining = int(tradeline.max_spots or 0) - total_purchased
-            
-            # Check if requested quantity exceeds available spots
-            requested_quantity = int(item.quantity or 0)
-            if requested_quantity > current_remaining:
-                validation_errors.append({
-                    'tradeline': item.tradeline,
-                    'tradeline_name': item.tradeline_name,
-                    'requested': requested_quantity,
-                    'available': current_remaining,
-                    'error': f'Insufficient slots. Requested: {requested_quantity}, Available: {current_remaining}'
-                })
+    try:
+        result = check_cart_availability(cart.name)
         
-        except Exception as e:
-            validation_errors.append({
-                'tradeline': item.tradeline,
-                'tradeline_name': item.tradeline_name,
-                'error': f'Validation error: {str(e)}'
-            })
+        if not result.get("available"):
+            validation_errors = []
+            for item in result.get("items", []):
+                if not item.get("available"):
+                    validation_errors.append({
+                        "tradeline": item.get("tradeline"),
+                        "requested": item.get("requested_quantity"),
+                        "available": item.get("remaining_spots"),
+                        "max_spots": item.get("max_spots"),
+                        "error": f"Insufficient slots. Requested: {item.get('requested_quantity')}, Available: {item.get('remaining_spots')}"
+                    })
+            
+            return {
+                'success': False,
+                'error': 'One or more tradelines do not have enough available spots',
+                'validation_errors': validation_errors
+            }
+        
+        return {'success': True, 'message': 'All slots are available'}
     
-    if validation_errors:
+    except Exception as e:
+        frappe.log_error(f"Error validating cart slots: {str(e)}", "Cart Slot Validation Error")
         return {
             'success': False,
-            'error': 'Maximum slots exceeded',
-            'validation_errors': validation_errors
+            'error': f'Validation error: {str(e)}'
         }
-    
-    return {'success': True, 'message': 'All slots are available'}
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()

@@ -217,9 +217,25 @@ class PaymentRequest(Document):
     
     def on_update(self):
         """Handle status changes"""
-        if self.has_value_changed("status"):
+        if self.has_value_changed("status") or self.has_value_changed("approval_status"):
             self.handle_status_change()
+            # Recalculate tradeline spots when status changes
+            self.recalculate_tradeline_spots_on_status_change()
        
+    
+    def recalculate_tradeline_spots_on_status_change(self):
+        """Recalculate tradeline spots when payment request status changes"""
+        try:
+            from rockettradeline.utils.tradeline_spots import recalculate_all_tradeline_spots_from_payment_request
+            
+            # Recalculate spots for all tradelines in this payment request
+            recalculate_all_tradeline_spots_from_payment_request(self.name)
+            
+        except Exception as e:
+            frappe.log_error(
+                f"Error recalculating tradeline spots for payment request {self.name}: {str(e)}",
+                "Payment Request Spots Recalculation Error"
+            )
     
     def handle_status_change(self):
         """Handle payment status changes"""

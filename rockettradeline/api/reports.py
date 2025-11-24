@@ -228,6 +228,9 @@ def get_admin_dashboard():
         # Monthly trends (last 6 months)
         monthly_trends = get_monthly_trends()
         
+        # Yearly trends (last 12 months)
+        yearly_trends = get_yearly_trends()
+        
         return {
             "overview": {
                 "total_users": total_users,
@@ -289,7 +292,8 @@ def get_admin_dashboard():
                     "success_rate": round(seller["success_rate"], 1)
                 } for seller in top_sellers
             ],
-            "monthly_trends": monthly_trends
+            "monthly_trends": monthly_trends,
+            "yearly_trends": yearly_trends
         }
         
     except Exception as e:
@@ -346,6 +350,10 @@ def get_admin_dashboard():
             "monthly_trends": {
                 "new_users": [0, 0, 0, 0, 0, 0],
                 "purchased_tradelines": [0, 0, 0, 0, 0, 0]
+            },
+            "yearly_trends": {
+                "new_users": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                "purchased_tradelines": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
             }
         }
 
@@ -813,6 +821,42 @@ def get_monthly_trends():
         return {
             "new_users": [65, 72, 68, 75, 71, 78],
             "purchased_tradelines": [2890, 3245, 3156, 3890, 3567, 3890]
+        }
+
+
+def get_yearly_trends():
+    """Get yearly trends for the last 12 months"""
+    try:
+        new_users = []
+        purchased_tradelines = []
+        
+        for i in range(11, -1, -1):  # Last 12 months
+            month_start = get_first_day(add_months(now_datetime(), -i))
+            month_end = get_last_day(add_months(now_datetime(), -i))
+            
+            # New users count
+            user_count = frappe.db.count("User", filters={
+                "user_type": "Website User",
+                "creation": ["between", [month_start, month_end]]
+            })
+            new_users.append(user_count)
+            
+            # Purchased tradelines count
+            tradeline_count = frappe.db.count("Client Tradelines", filters={
+                "creation": ["between", [month_start, month_end]]
+            })
+            purchased_tradelines.append(tradeline_count)
+        
+        return {
+            "new_users": new_users,
+            "purchased_tradelines": purchased_tradelines
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Yearly trends error: {str(e)}")
+        return {
+            "new_users": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            "purchased_tradelines": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         }
 
 

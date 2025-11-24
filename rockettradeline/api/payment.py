@@ -155,6 +155,17 @@ def create_manual_payment_request(cart_id, payment_method, buyer=None):
 
         # if cart.status != "Active":
         #     return {"success": False, "error": "Cart is not active"}
+        
+        # Check tradeline availability before creating payment request
+        from rockettradeline.utils.tradeline_spots import check_cart_availability
+        availability_check = check_cart_availability(cart_id)
+        if not availability_check.get("available"):
+            frappe.response.http_status_code = 409  # Conflict
+            return {
+                "success": False, 
+                "error": "One or more tradelines do not have enough available spots",
+                "details": availability_check.get("items", [])
+            }
 
         # Calculate total amount
         cart_total = cart.calculate_totals()

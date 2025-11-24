@@ -25,7 +25,8 @@
   "requires_ssn",
   "requires_address",
   "commission",
-  "credit_usage"
+  "credit_usage",
+  "late_payment"
  ],
  "fields": [
   {
@@ -152,6 +153,11 @@
    "fieldname": "credit_usage",
    "fieldtype": "Float",
    "label": "Credit Usage"
+  },
+  {
+   "fieldname": "late_payment",
+   "fieldtype": "Data",
+   "label": "Late Payment"
   }
  ],
  "index_web_pages_for_search": 1,

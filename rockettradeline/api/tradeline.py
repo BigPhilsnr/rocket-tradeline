@@ -4,6 +4,43 @@ from frappe import _
 import json
 
 
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
+def recalculate_tradeline_spots(tradeline_id=None):
+    """
+    Recalculate remaining spots for one or all tradelines
+    Admin only endpoint
+    """
+    try:
+        current_user = get_authenticated_user()
+        if not is_administrator(current_user):
+            return {
+                "success": False,
+                "error": "Only administrators can recalculate tradeline spots"
+            }
+        
+        from rockettradeline.utils.tradeline_spots import (
+            recalculate_tradeline_remaining_spots,
+            recalculate_all_tradelines
+        )
+        
+        if tradeline_id:
+            # Recalculate single tradeline
+            result = recalculate_tradeline_remaining_spots(tradeline_id)
+            return result
+        else:
+            # Recalculate all tradelines
+            result = recalculate_all_tradelines()
+            return result
+            
+    except Exception as e:
+        frappe.log_error(f"Error in recalculate_tradeline_spots API: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
 # Tradeline APIs
 
 @frappe.whitelist(allow_guest=True)
@@ -92,7 +129,8 @@ def get_tradelines(limit=20, start=0, search=None, filters=None):
                 filters=query_filters,
                 fields=["name", "bank", "age_year", "age_month", "credit_limit", 
                        "price", "max_spots", "remaining_spots", "closing_date", 
-                       "credit_utilization_rate", "status"],
+                       "credit_utilization_rate", "status", "balance", "commission", 
+                       "credit_usage", "late_payment"],
                 limit=limit,
                 start=start,
                 order_by="creation desc"
@@ -219,7 +257,7 @@ def get_tradelines_admin(limit=20, start=0, search=None, filters=None):
                 filters=query_filters,
                 fields=["name", "bank", "age_year", "age_month", "credit_limit", 
                        "price", "max_spots", "remaining_spots", "closing_date", "commission","card_holder",
-                       "credit_utilization_rate", "status"],
+                       "credit_utilization_rate", "status", "late_payment"],
                 limit=limit,
                 start=start,
                 order_by="creation desc"
@@ -297,6 +335,7 @@ def get_tradeline_admin(tradeline_id):
             "balance": tradeline.balance,
             "commission": tradeline.commission,
             "credit_usage": tradeline.credit_usage,
+            "late_payment": tradeline.late_payment,
             "card_holder": {
                 "name": card_holder_doc.name if card_holder_doc else None,
                 "fullname": card_holder_doc.customer_name if card_holder_doc else None,
@@ -365,7 +404,7 @@ def get_tradeline(tradeline_id):
 def create_tradeline(bank, age_year, credit_limit, price, max_spots, 
                     closing_date, card_holder, mailing_address, 
                     age_month=None, credit_utilization_rate=None, commission=0.0, credit_usage=None,
-                    balance=None, status="Active"):
+                    balance=None, status="Active", late_payment=None):
     """
     Create new tradeline
     """
@@ -412,7 +451,8 @@ def create_tradeline(bank, age_year, credit_limit, price, max_spots,
             "mailing_address": mailing_address,
             "credit_utilization_rate": credit_utilization_rate or 0,
             "balance": balance or 0,
-            "status": status
+            "status": status,
+            "late_payment": late_payment
         })
         tradeline.insert(ignore_permissions=True)
         return {
@@ -452,7 +492,7 @@ def update_tradeline(tradeline_id, **kwargs):
         allowed_fields = ["bank", "age_year", "age_month", "credit_limit", 
                          "price", "max_spots", "closing_date", "card_holder",
                          "mailing_address", "credit_utilization_rate", "commission","credit_usage",
-                         "balance", "status"]
+                         "balance", "status", "late_payment"]
         
         for field, value in kwargs.items():
             if field in allowed_fields and value is not None:
@@ -1344,7 +1384,7 @@ def get_seller_tradelines(limit=20, start=0, search=None, filters=None):
             filters=query_filters,
             fields=["name", "bank", "age_year", "age_month", "credit_limit", 
                    "price", "max_spots", "remaining_spots", "closing_date", 
-                   "credit_utilization_rate", "status"],
+                   "credit_utilization_rate", "status", "late_payment"],
             limit=limit,
             start=start,
             order_by="creation desc"

@@ -83,6 +83,16 @@ def check_and_expire_client_tradelines():
         # Commit all changes
         frappe.db.commit()
         
+        # Recalculate tradeline spots for all affected tradelines
+        try:
+            from rockettradeline.utils.tradeline_spots import recalculate_tradeline_remaining_spots
+            unique_tradelines = set([t.tradeline for t in expired_tradelines if t.tradeline])
+            for tradeline_id in unique_tradelines:
+                recalculate_tradeline_remaining_spots(tradeline_id)
+            print(f"Recalculated spots for {len(unique_tradelines)} tradelines")
+        except Exception as e:
+            frappe.log_error(f"Error recalculating spots after expiry: {str(e)}", "Spots Recalculation Error")
+        
         result = {
             "success": True,
             "message": f"Processed {processed_count} expired tradelines",

@@ -131,7 +131,21 @@ class ClientTradelines(Document):
         
         # Recalculate remaining spots for the attached tradeline when status changes
         if self.has_value_changed("status") or (self.has_value_changed("quantity") and self.status != "Refund Requested"):
-            self.recalculate_tradeline_remaining_spots()
+            self.recalculate_tradeline_remaining_spots_v2()
+    
+    def recalculate_tradeline_remaining_spots_v2(self):
+        """Use centralized spots calculation utility"""
+        try:
+            from rockettradeline.utils.tradeline_spots import recalculate_spots_from_client_tradeline
+            
+            # Recalculate spots for the tradeline
+            recalculate_spots_from_client_tradeline(self.name)
+            
+        except Exception as e:
+            frappe.log_error(
+                f"Error recalculating tradeline spots for client tradeline {self.name}: {str(e)}",
+                "Client Tradeline Spots Recalculation Error"
+            )
     
     def handle_status_change(self):
         """Handle client tradeline status changes"""

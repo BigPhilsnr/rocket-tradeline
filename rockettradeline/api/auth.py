@@ -1316,6 +1316,7 @@ def get_current_user():
             customer['is_questionnaire_filled'] = bool(getattr(customer_doc, 'is_questionnaire_filled', 0))
             customer['agreement_signed_date'] = getattr(customer_doc, 'agreement_signed_date', None)
             customer['questionnaire_filled_date'] = getattr(customer_doc, 'questionnaire_filled_date', None)
+            customer['custom_preferred_mode_of_payment'] = getattr(customer_doc, 'custom_preferred_mode_of_payment', None)
             
             # Remove system fields that aren't needed in API response
             system_fields = ['docstatus', 'idx', 'owner', 'modified_by', 'creation', 'modified']
@@ -1413,7 +1414,8 @@ def get_current_user():
 @jwt_required()
 def update_profile(full_name=None, phone=None, user_image=None, gender=None, date_of_birth=None,dob=None, 
                   social_security_number=None, address_line1=None, address_line2=None, city=None, 
-                  state=None, zipcode=None, country=None, address_type="Personal", is_default=0,user_id=None):
+                  state=None, zipcode=None, country=None, address_type="Personal", is_default=0,user_id=None,
+                  custom_preferred_mode_of_payment=None):
 
     if dob:
         date_of_birth = dob
@@ -1492,6 +1494,9 @@ def update_profile(full_name=None, phone=None, user_image=None, gender=None, dat
             if social_security_number:
                 customer.tax_id = social_security_number
             
+            if custom_preferred_mode_of_payment is not None:
+                customer.custom_preferred_mode_of_payment = custom_preferred_mode_of_payment
+            
             customer.save(ignore_permissions=True)
             
             # Handle address creation/update
@@ -1530,7 +1535,8 @@ def update_profile(full_name=None, phone=None, user_image=None, gender=None, dat
                 "has_signed_agreement": bool(getattr(customer, 'has_signed_agreement', 0)),
                 "is_questionnaire_filled": bool(getattr(customer, 'is_questionnaire_filled', 0)),
                 "agreement_signed_date": getattr(customer, 'agreement_signed_date', None),
-                "questionnaire_filled_date": getattr(customer, 'questionnaire_filled_date', None)
+                "questionnaire_filled_date": getattr(customer, 'questionnaire_filled_date', None),
+                "custom_preferred_mode_of_payment": getattr(customer, 'custom_preferred_mode_of_payment', None)
             }
         
         response_data = {
@@ -2622,7 +2628,7 @@ def verify_email(token):
             </div>
             <h1 style="color: #1f2937; font-size: 24px; margin-bottom: 15px;">Your Account Has Been Verified!</h1>
             <p style="color: #6b7280; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
-                Congratulations! Your email address has been successfully verified. You can now access your Rocket Tradeline account and start buying tradelines.
+                Congratulations! Your email address has been successfully verified. You can now access your Rocket Tradeline account and start buying and selling tradelines.
             </p>
             <a href="https://www.rockettradeline.com/login" style="background-color: #17B26A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">Click Here to Login</a>
         </div>
