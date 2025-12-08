@@ -1,0 +1,191 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:code",
+ "creation": "2025-12-02 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "code",
+  "description",
+  "enabled",
+  "column_break_1",
+  "discount_type",
+  "discount_value",
+  "max_discount_amount",
+  "section_break_2",
+  "valid_from",
+  "valid_to",
+  "column_break_3",
+  "max_uses",
+  "max_uses_per_user",
+  "section_break_4",
+  "minimum_cart_amount",
+  "applicable_to",
+  "column_break_5",
+  "usage_info_section",
+  "total_uses",
+  "last_used"
+ ],
+ "fields": [
+  {
+   "fieldname": "code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Discount Code",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "discount_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Discount Type",
+   "options": "Percentage\nAmount",
+   "reqd": 1
+  },
+  {
+   "fieldname": "discount_value",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Discount Value",
+   "reqd": 1
+  },
+  {
+   "fieldname": "max_discount_amount",
+   "fieldtype": "Currency",
+   "label": "Maximum Discount Amount"
+  },
+  {
+   "fieldname": "section_break_2",
+   "fieldtype": "Section Break",
+   "label": "Validity Period"
+  },
+  {
+   "fieldname": "valid_from",
+   "fieldtype": "Date",
+   "label": "Valid From"
+  },
+  {
+   "fieldname": "valid_to",
+   "fieldtype": "Date",
+   "label": "Valid To"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "max_uses",
+   "fieldtype": "Int",
+   "label": "Max Total Uses"
+  },
+  {
+   "fieldname": "max_uses_per_user",
+   "fieldtype": "Int",
+   "label": "Max Uses Per User"
+  },
+  {
+   "fieldname": "section_break_4",
+   "fieldtype": "Section Break",
+   "label": "Conditions"
+  },
+  {
+   "fieldname": "minimum_cart_amount",
+   "fieldtype": "Currency",
+   "label": "Minimum Cart Amount"
+  },
+  {
+   "fieldname": "applicable_to",
+   "fieldtype": "Select",
+   "label": "Applicable To",
+   "options": "All Users\nSpecific Users\nNew Users Only",
+   "default": "All Users"
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "usage_info_section",
+   "fieldtype": "Section Break",
+   "label": "Usage Information"
+  },
+  {
+   "fieldname": "total_uses",
+   "fieldtype": "Int",
+   "label": "Total Uses",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "last_used",
+   "fieldtype": "Datetime",
+   "label": "Last Used",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2025-12-02 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "RocketTradeline",
+ "name": "Discount Code",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

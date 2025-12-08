@@ -7,6 +7,7 @@
  "engine": "InnoDB",
  "field_order": [
   "customer_name",
+  "customer_email",
   "testimonial",
   "column_break_1",
   "rating",
@@ -20,6 +21,12 @@
    "fieldtype": "Data",
    "label": "Customer Name",
    "reqd": 1
+  },
+  {
+   "fieldname": "customer_email",
+   "fieldtype": "Data",
+   "label": "Customer Email",
+   "options": "Email"
   },
   {
    "fieldname": "testimonial",

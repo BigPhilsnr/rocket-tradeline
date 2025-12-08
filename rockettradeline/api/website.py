@@ -859,7 +859,7 @@ def get_testimonials(limit=20, start=0):
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
 def create_testimonial(customer_name, testimonial, rating=5, 
-                      customer_image=None, sort_order=0):
+                      customer_email=None, customer_image=None, sort_order=0):
     """
     Create new testimonial
     """
@@ -874,6 +874,7 @@ def create_testimonial(customer_name, testimonial, rating=5,
         testimonial_doc = frappe.get_doc({
             "doctype": "Testimonial",
             "customer_name": customer_name,
+            "customer_email": customer_email,
             "testimonial": testimonial,
             "rating": rating,
             "customer_image": customer_image,
@@ -901,7 +902,7 @@ def create_testimonial(customer_name, testimonial, rating=5,
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def update_testimonial(name, customer_name=None, testimonial=None, 
+def update_testimonial(name, customer_name=None, customer_email=None, testimonial=None, 
                       rating=None, customer_image=None, sort_order=None, 
                       is_published=None):
     """
@@ -919,6 +920,8 @@ def update_testimonial(name, customer_name=None, testimonial=None,
         
         if customer_name:
             testimonial_doc.customer_name = customer_name
+        if customer_email is not None:
+            testimonial_doc.customer_email = customer_email
         if testimonial:
             testimonial_doc.testimonial = testimonial
         if rating is not None:

@@ -150,7 +150,7 @@ def create_manual_payment_request(cart_id, payment_method, buyer=None):
         
         # Validate cart exists and is owned by current user or user is administrator
         cart = frappe.get_doc("Tradeline Cart", cart_id)
-        if not buyer and cart.user_id != current_user and current_user != "Administrator" and "Administrator" not in frappe.get_roles(current_user):
+        if not buyer and cart.user_id != current_user and not is_administrator(current_user)  and "Administrator" not in frappe.get_roles(current_user):
             return {"success": False, "error": f"Cart not found or access denied cart belong to {cart.user_id}  not {current_user}"}
 
         # if cart.status != "Active":

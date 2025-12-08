@@ -563,6 +563,199 @@ def apply_discount(discount_type, discount_value, cart_id=None):
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
+def apply_discount_code(code, cart_id=None):
+    """Apply discount code to cart"""
+    try:
+        current_user = get_authenticated_user()
+        if not current_user:
+            return {'success': False, 'error': 'Authentication required'}
+        
+        # Validate code input
+        if not code:
+            return {'success': False, 'error': 'Discount code is required'}
+        
+        code = code.upper().strip()
+        
+        # Get cart
+        if cart_id:
+            cart = frappe.get_doc('Tradeline Cart', cart_id)
+            if not verify_cart_access(cart, current_user):
+                return {'success': False, 'error': 'Access denied'}
+        else:
+            cart_name = frappe.db.get_value(
+                'Tradeline Cart',
+                {'user_id': current_user, 'status': 'Active'},
+                'name'
+            )
+            if not cart_name:
+                return {'success': False, 'error': 'No active cart found'}
+            cart = frappe.get_doc('Tradeline Cart', cart_name)
+        
+        # Validate cart has items
+        if not cart.items or cart.subtotal <= 0:
+            return {'success': False, 'error': 'Cannot apply discount to empty cart'}
+        
+        # Get discount code
+        discount_code_name = frappe.db.get_value('Discount Code', {'code': code}, 'name')
+        if not discount_code_name:
+            return {'success': False, 'error': 'Invalid discount code'}
+        
+        discount_code = frappe.get_doc('Discount Code', discount_code_name)
+        
+        # Check if discount code can be used
+        can_use, message = discount_code.can_be_used(current_user)
+        if not can_use:
+            return {'success': False, 'error': message}
+        
+        # Check if user has already used this code on this cart
+        existing_usage = frappe.db.get_value('Discount Code Usage', {
+            'discount_code': discount_code.name,
+            'cart_id': cart.name
+        }, 'name')
+        
+        if existing_usage:
+            return {'success': False, 'error': 'This discount code has already been applied to this cart'}
+        
+        # Calculate discount
+        discount_amount, calc_message = discount_code.calculate_discount(cart.subtotal)
+        
+        if discount_amount <= 0:
+            return {'success': False, 'error': calc_message}
+        
+        # Apply discount to cart
+        cart.discount_amount = discount_amount
+        cart.discount_code = discount_code.name
+        cart.discount_code_value = code
+        cart.save()
+        
+        # Record usage
+        usage = discount_code.record_usage(cart.name, current_user)
+        
+        # Update discount code statistics
+        frappe.db.set_value('Discount Code', discount_code.name, {
+            'total_uses': frappe.db.count('Discount Code Usage', {'discount_code': discount_code.name}),
+            'last_used': frappe.utils.now_datetime()
+        })
+        
+        # Update usage record with actual discount amount
+        frappe.db.set_value('Discount Code Usage', usage.name, 'discount_amount', discount_amount)
+        
+        return {
+            'success': True,
+            'message': f'Discount code "{code}" applied successfully',
+            'cart': cart.as_dict(),
+            'discount_details': {
+                'code': code,
+                'discount_type': discount_code.discount_type,
+                'discount_value': discount_code.discount_value,
+                'discount_amount': discount_amount,
+                'description': discount_code.description
+            }
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Apply discount code error: {str(e)}", "Cart API Error")
+        return {'success': False, 'error': str(e)}
+
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
+def remove_discount_code(cart_id=None):
+    """Remove discount code from cart"""
+    try:
+        current_user = get_authenticated_user()
+        if not current_user:
+            return {'success': False, 'error': 'Authentication required'}
+        
+        # Get cart
+        if cart_id:
+            cart = frappe.get_doc('Tradeline Cart', cart_id)
+            if not verify_cart_access(cart, current_user):
+                return {'success': False, 'error': 'Access denied'}
+        else:
+            cart_name = frappe.db.get_value(
+                'Tradeline Cart',
+                {'user_id': current_user, 'status': 'Active'},
+                'name'
+            )
+            if not cart_name:
+                return {'success': False, 'error': 'No active cart found'}
+            cart = frappe.get_doc('Tradeline Cart', cart_name)
+        
+        # Remove discount
+        cart.discount_amount = 0
+        cart.discount_code = None
+        cart.discount_code_value = None
+        cart.save()
+        
+        # Remove usage record if exists
+        frappe.db.delete('Discount Code Usage', {
+            'cart_id': cart.name,
+            'user_email': current_user
+        })
+        
+        return {
+            'success': True,
+            'message': 'Discount code removed successfully',
+            'cart': cart.as_dict()
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Remove discount code error: {str(e)}", "Cart API Error")
+        return {'success': False, 'error': str(e)}
+
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
+def validate_discount_code(code):
+    """Validate discount code without applying it"""
+    try:
+        current_user = get_authenticated_user()
+        if not current_user:
+            return {'success': False, 'error': 'Authentication required'}
+        
+        if not code:
+            return {'success': False, 'error': 'Discount code is required'}
+        
+        code = code.upper().strip()
+        
+        # Get discount code
+        discount_code_name = frappe.db.get_value('Discount Code', {'code': code}, 'name')
+        if not discount_code_name:
+            return {'success': False, 'error': 'Invalid discount code', 'valid': False}
+        
+        discount_code = frappe.get_doc('Discount Code', discount_code_name)
+        
+        # Check if discount code can be used
+        can_use, message = discount_code.can_be_used(current_user)
+        
+        if not can_use:
+            return {
+                'success': True,
+                'valid': False,
+                'error': message
+            }
+        
+        return {
+            'success': True,
+            'valid': True,
+            'message': 'Discount code is valid',
+            'discount_details': {
+                'code': code,
+                'description': discount_code.description,
+                'discount_type': discount_code.discount_type,
+                'discount_value': discount_code.discount_value,
+                'minimum_cart_amount': discount_code.minimum_cart_amount,
+                'max_discount_amount': discount_code.max_discount_amount,
+                'valid_from': discount_code.valid_from,
+                'valid_to': discount_code.valid_to
+            }
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Validate discount code error: {str(e)}", "Cart API Error")
+        return {'success': False, 'error': str(e)}
+
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
 def checkout_cart(cart_id=None, address_id=None, buyer=None):
     """Checkout cart and create order"""
     try:
@@ -572,7 +765,7 @@ def checkout_cart(cart_id=None, address_id=None, buyer=None):
         
         
         if buyer:
-            if current_user != frappe.get_value('Customer', {'email_id': buyer}, 'account_manager'):
+            if current_user != frappe.get_value('Customer', {'email_id': buyer}, 'account_manager') and not is_administrator(current_user)  :
                 frappe.response.http_status_code = 417
                 return {'success': False, 'error': f'You are not the account manager for this buyer {frappe.get_value('Customer', {'email_id': buyer}, 'account_manager')} != {current_user}'}
         #update return with correct status code 417 instead of success false

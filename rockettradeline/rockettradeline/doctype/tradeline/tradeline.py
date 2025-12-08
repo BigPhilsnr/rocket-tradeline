@@ -17,7 +17,7 @@ class Tradeline(Document):
 
 		if self.has_value_changed("status"):
 			self.handle_status_change()
-		self.recalculate_tradeline_remaining_spots()
+		self.recalculate_tradeline_remaining_spots(internal_call=True)
 
 	def send_admin_review_email(self):
 		"""Send email to all administrators when a tradeline is created for review"""
@@ -82,7 +82,7 @@ class Tradeline(Document):
 		if old_status == "InActive" and new_status == "Active":
 			self.send_activation_notification()
 
-	def recalculate_tradeline_remaining_spots(self):
+	def recalculate_tradeline_remaining_spots(self, internal_call=False):
 		"""
 		Recalculate remaining spots for the attached tradeline
 		by summing all active client tradelines and subtracting from max spots
@@ -111,8 +111,9 @@ class Tradeline(Document):
 
 			# Ensure remaining spots doesn't go below 0
 			new_remaining_spots = max(0, new_remaining_spots)
+			ref_value = 0 if internal_call else 1
 
-			if new_remaining_spots < 1:
+			if new_remaining_spots < ref_value:
 				frappe.throw("Error: Remaining spots cannot be negative")
 
 			# Update the tradeline document only if values have changed

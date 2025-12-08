@@ -71,7 +71,7 @@ def get_admin_dashboard():
     """Get comprehensive admin dashboard data"""
     try:
         # Overview statistics
-        total_users = frappe.db.count("User", filters={"user_type": "Website User"})
+        total_users = frappe.db.count("User")
         total_customers = frappe.db.count("Customer")
         
         # Get sellers using role profile name "Tradeline Seller"
@@ -91,13 +91,28 @@ def get_admin_dashboard():
             "role_profile_name": "Tradeline Broker",
             "enabled": 1
         })
-        active_users = frappe.db.count("User", filters={"user_type": "Website User", "enabled": 1})
+        
+        # Get admins using role profile name "Admin"
+        total_admins = frappe.db.count("User", filters={
+            "role_profile_name": "Administrator",
+            "enabled": 1
+        })
+        
+        # Get guest users (users without role profile)
+        total_guests = frappe.db.sql("""
+            SELECT COUNT(*) as count
+            FROM `tabUser`
+            WHERE (role_profile_name IS NULL OR role_profile_name = '')
+            AND enabled = 1
+            AND name != 'Guest'
+        """, as_dict=True)[0]["count"]
+        
+        active_users = frappe.db.count("User", filters={"enabled": 1})
         inactive_users = total_users - active_users
         
         # New users this month
         current_month_start = get_first_day(now_datetime())
         new_users_this_month = frappe.db.count("User", filters={
-            "user_type": "Website User",
             "creation": [">=", current_month_start]
         })
         
@@ -120,17 +135,16 @@ def get_admin_dashboard():
         
         tradeline_data = tradeline_stats[0] if tradeline_stats else {}
         
-        # Financial statistics
+        # Financial statistics - calculated from Client Tradelines
         payment_stats = frappe.db.sql("""
             SELECT 
-           
-                COALESCE(SUM(CASE WHEN approval_status IN ('Approved') THEN total_amount ELSE 0 END), 0) as total_revenue,
-                COALESCE(COUNT(CASE WHEN approval_status IN ('Pending Approval') THEN 1 END), 0) as pending_payments,
-                COALESCE(COUNT(CASE WHEN approval_status = 'Approved' THEN 1 END), 0) as approved_payments,
-                COALESCE(COUNT(CASE WHEN approval_status IN ('Rejected') THEN 1 END), 0) as rejected_payments,
-                COALESCE(AVG(total_amount), 0) as average_transaction_value,
+                COALESCE(SUM(CASE WHEN status NOT IN ('Cancelled', 'Canceled', 'Refunded') THEN total_amount ELSE 0 END), 0) as total_revenue,
+                COALESCE(COUNT(CASE WHEN status = 'Pending AU' THEN 1 END), 0) as pending_payments,
+                COALESCE(COUNT(CASE WHEN status IN ('Active', 'Completed', 'Expired') THEN 1 END), 0) as approved_payments,
+                COALESCE(COUNT(CASE WHEN status IN ('Cancelled', 'Canceled', 'Refunded') THEN 1 END), 0) as rejected_payments,
+                COALESCE(AVG(CASE WHEN status NOT IN ('Cancelled', 'Canceled', 'Refunded') THEN total_amount END), 0) as average_transaction_value,
                 COUNT(*) as total_transactions
-            FROM `tabPayment Request`
+            FROM `tabClient Tradelines`
         """, as_dict=True)
         
         payment_data = payment_stats[0] if payment_stats else {}
@@ -150,8 +164,8 @@ def get_admin_dashboard():
         # Monthly revenue
         monthly_revenue = frappe.db.sql("""
             SELECT COALESCE(SUM(total_amount), 0) as monthly_revenue
-            FROM `tabPayment Request`
-            WHERE creation >= %s AND status = 'Completed'
+            FROM `tabClient Tradelines`
+            WHERE creation >= %s AND status NOT IN ('Cancelled', 'Canceled', 'Refunded')
         """, [current_month_start], as_dict=True)
         
         monthly_rev = monthly_revenue[0]["monthly_revenue"] if monthly_revenue else 0
@@ -160,26 +174,40 @@ def get_admin_dashboard():
         client_tradeline_stats = frappe.db.sql("""
             SELECT 
                 COUNT(*) as total_client_tradelines,
-                SUM(CASE WHEN completion_date IS NULL AND (expiry_date IS NULL OR expiry_date > CURDATE()) THEN 1 ELSE 0 END) as active_assignments,
-                SUM(CASE WHEN completion_date IS NOT NULL THEN 1 ELSE 0 END) as completed_assignments,
-                SUM(CASE WHEN completion_date IS NULL THEN 1 ELSE 0 END) as pending_assignments,
-                SUM(CASE WHEN expiry_date IS NOT NULL AND expiry_date < CURDATE() AND completion_date IS NULL THEN 1 ELSE 0 END) as expired_assignments,
-                SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) as cancelled_assignments
+                
+                SUM(CASE WHEN status = 'Active' AND (expiry_date IS NULL OR expiry_date > CURDATE()) THEN 1 ELSE 0 END) as active_assignments,
+                SUM(CASE WHEN status = 'Refunded' THEN 1 ELSE 0 END) as completed_assignments,
+                SUM(CASE WHEN status = 'Pending AU' THEN 1 ELSE 0 END) as pending_assignments,
+                SUM(CASE WHEN status = 'Expired' THEN 1 ELSE 0 END) as expired_assignments,
+                SUM(CASE WHEN status = 'Cancelled' OR status = 'Canceled' THEN 1 ELSE 0 END) as cancelled_assignments
             FROM `tabClient Tradelines`
         """, as_dict=True)
         
         client_data = client_tradeline_stats[0] if client_tradeline_stats else {}
         
+        # Count unpurchased tradelines (tradelines not in any Client Tradelines)
+        unpurchased_tradelines = frappe.db.sql("""
+            SELECT COUNT(*) as unpurchased_count
+            FROM `tabTradeline` t
+            WHERE NOT EXISTS (
+                SELECT 1 FROM `tabClient Tradelines` ct
+                WHERE ct.tradeline = t.name
+            )
+        """, as_dict=True)
+        
+        unpurchased_count = unpurchased_tradelines[0]["unpurchased_count"] if unpurchased_tradelines else 0
+        
         # Payment methods breakdown
         payment_methods = frappe.db.sql("""
             SELECT 
-                payment_method,
-                payment_method as display_name,
+                pr.payment_method,
+                pr.payment_method as display_name,
                 COUNT(*) as tradelines,
-                COALESCE(SUM(total_amount), 0) as amount
-            FROM `tabPayment Request`
-            WHERE status = 'Completed'
-            GROUP BY payment_method
+                COALESCE(SUM(ct.total_amount), 0) as amount
+            FROM `tabClient Tradelines` ct
+            LEFT JOIN `tabPayment Request` pr ON pr.name = ct.payment_request
+            WHERE ct.status NOT IN ('Cancelled', 'Canceled', 'Refunded')
+            GROUP BY pr.payment_method
             ORDER BY amount DESC
             LIMIT 10
         """, as_dict=True)
@@ -238,6 +266,8 @@ def get_admin_dashboard():
                 "total_sellers": total_sellers,
                 "total_buyers": total_buyers,
                 "total_brokers": total_brokers,
+                "total_admins": total_admins,
+                "total_guests": total_guests,
                 "active_users": active_users,
                 "inactive_users": inactive_users,
                 "new_users_this_month": new_users_this_month
@@ -269,7 +299,8 @@ def get_admin_dashboard():
                 "completed_assignments": client_data.get("completed_assignments", 0),
                 "pending_assignments": client_data.get("pending_assignments", 0),
                 "expired_assignments": client_data.get("expired_assignments", 0),
-                "cancelled_assignments": client_data.get("cancelled_assignments", 0)
+                "cancelled_assignments": client_data.get("cancelled_assignments", 0),
+                "unpurchased_tradelines": unpurchased_count
             },
             "payment_methods": payment_methods,
             "banks": {
@@ -306,6 +337,8 @@ def get_admin_dashboard():
                 "total_sellers": 0,
                 "total_buyers": 0,
                 "total_brokers": 0,
+                "total_admins": 0,
+                "total_guests": 0,
                 "active_users": 0,
                 "inactive_users": 0,
                 "new_users_this_month": 0
@@ -337,7 +370,8 @@ def get_admin_dashboard():
                 "completed_assignments": 0,
                 "pending_assignments": 0,
                 "expired_assignments": 0,
-                "cancelled_assignments": 0
+                "cancelled_assignments": 0,
+                "unpurchased_tradelines": 0
             },
             "payment_methods": [],
             "banks": {
@@ -366,11 +400,12 @@ def get_seller_dashboard(current_user):
             return {}
             
         customer = frappe.get_all("Customer", 
-            filters={"user": current_user}, 
+            filters={"email_id": current_user}, 
             fields=["name", "email_id"], 
             limit=1
         )
         
+       
         if not customer:
             return {}
             
@@ -390,6 +425,8 @@ def get_seller_dashboard(current_user):
             WHERE card_holder = %s
         """, [customer[0]["name"]], as_dict=True)
         
+     
+        
         tradeline_data = tradeline_stats[0] if tradeline_stats else {}
         total_spots = int(tradeline_data.get("total_spots", 0))
         occupied_spots = int(tradeline_data.get("occupied_spots", 0))
@@ -399,26 +436,25 @@ def get_seller_dashboard(current_user):
         # Performance metrics
         performance_stats = frappe.db.sql("""
             SELECT 
-                COALESCE(SUM(pr.total_amount), 0) as total_revenue,
+                COALESCE(SUM(ct.total_amount), 0) as total_revenue,
                 COUNT(DISTINCT ct.name) as total_sales,
-                COALESCE(AVG(pr.total_amount), 0) as average_sale_value
+                COALESCE(AVG(ct.total_amount), 0) as average_sale_value
             FROM `tabClient Tradelines` ct
-            LEFT JOIN `tabPayment Request` pr ON pr.name = ct.payment_request
-            LEFT JOIN `tabTradeline` t ON t.name = ct.tradeline
-            WHERE t.card_holder = %s AND pr.status = 'Completed'
+            INNER JOIN `tabTradeline` t ON t.name = ct.tradeline
+            WHERE t.card_holder = %s AND ct.status NOT IN ('Cancelled', 'Canceled', 'Refunded')
         """, [customer[0]["name"]], as_dict=True)
         
         perf_data = performance_stats[0] if performance_stats else {}
+    
         
         # Monthly revenue
         monthly_revenue = frappe.db.sql("""
-            SELECT COALESCE(SUM(pr.total_amount), 0) as monthly_revenue
+            SELECT COALESCE(SUM(ct.total_amount), 0) as monthly_revenue
             FROM `tabClient Tradelines` ct
-            LEFT JOIN `tabPayment Request` pr ON pr.name = ct.payment_request
-            LEFT JOIN `tabTradeline` t ON t.name = ct.tradeline
+            INNER JOIN `tabTradeline` t ON t.name = ct.tradeline
             WHERE t.card_holder = %s 
-            AND pr.status = 'Completed' 
-            AND pr.creation >= %s
+            AND ct.status NOT IN ('Cancelled', 'Canceled', 'Refunded') 
+            AND ct.creation >= %s
         """, [customer[0]["name"], get_first_day(now_datetime())], as_dict=True)
         
         monthly_rev = monthly_revenue[0]["monthly_revenue"] if monthly_revenue else 0
@@ -427,11 +463,11 @@ def get_seller_dashboard(current_user):
         assignment_stats = frappe.db.sql("""
             SELECT 
                 COUNT(*) as total_assignments,
-                SUM(CASE WHEN status = 'Active' THEN 1 ELSE 0 END) as active_assignments,
-                SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed_assignments,
-                SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending_assignments,
-                SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as successful_assignments,
-                SUM(CASE WHEN status IN ('Failed', 'Cancelled') THEN 1 ELSE 0 END) as failed_assignments
+                SUM(CASE WHEN ct.status = 'Active' THEN 1 ELSE 0 END) as active_assignments,
+                SUM(CASE WHEN ct.status = 'Refunded' THEN 1 ELSE 0 END) as completed_assignments,
+                SUM(CASE WHEN ct.status = 'Pending AU' THEN 1 ELSE 0 END) as pending_assignments,
+                SUM(CASE WHEN ct.status IN ('Refunded', 'Expired') THEN 1 ELSE 0 END) as successful_assignments,
+                SUM(CASE WHEN ct.status IN ('Cancelled', 'Canceled') THEN 1 ELSE 0 END) as failed_assignments
             FROM `tabClient Tradelines` ct
             LEFT JOIN `tabTradeline` t ON t.name = ct.tradeline
             WHERE t.card_holder = %s
@@ -443,15 +479,14 @@ def get_seller_dashboard(current_user):
         bank_distribution = frappe.db.sql("""
             SELECT 
                 b.bank_name as bank,
-                COUNT(t.name) as tradelines,
+                COUNT(DISTINCT t.name) as tradelines,
                 COALESCE(SUM(t.max_spots), 0) as spots,
-                COALESCE(SUM(pr.total_amount), 0) as revenue
+                COALESCE(SUM(ct.total_amount), 0) as revenue
             FROM `tabTradeline` t
-            LEFT JOIN `tabTradeline Bank` b ON b.name = t.bank
-            LEFT JOIN `tabClient Tradelines` ct ON ct.tradeline = t.name
-            LEFT JOIN `tabPayment Request` pr ON pr.name = ct.payment_request
-            WHERE t.card_holder = %s AND pr.status = 'Completed'
-            GROUP BY b.name
+            INNER JOIN `tabTradeline Bank` b ON b.name = t.bank
+            LEFT JOIN `tabClient Tradelines` ct ON ct.tradeline = t.name AND ct.status NOT IN ('Cancelled', 'Canceled', 'Refunded')
+            WHERE t.card_holder = %s
+            GROUP BY b.bank_name
             ORDER BY revenue DESC
             LIMIT 5
         """, [customer[0]["name"]], as_dict=True)
@@ -460,18 +495,40 @@ def get_seller_dashboard(current_user):
         recent_stats = frappe.db.sql("""
             SELECT 
                 SUM(CASE WHEN ct.creation >= %s THEN 1 ELSE 0 END) as new_assignments,
-                SUM(CASE WHEN ct.completion_date >= %s AND ct.status = 'Completed' THEN 1 ELSE 0 END) as completed_this_week,
-                SUM(CASE WHEN ct.expiry_date <= %s AND ct.status = 'Active' THEN 1 ELSE 0 END) as expiring_soon,
-                SUM(CASE WHEN ct.status = 'Pending' THEN 1 ELSE 0 END) as pending_approvals
+                SUM(CASE WHEN ct.modified >= %s AND ct.status = 'Refunded' THEN 1 ELSE 0 END) as completed_this_week,
+                SUM(CASE WHEN ct.expiry_date <= %s AND ct.expiry_date >= CURDATE() AND ct.status = 'Active' THEN 1 ELSE 0 END) as expiring_soon,
+                SUM(CASE WHEN ct.status = 'Pending AU' THEN 1 ELSE 0 END) as pending_approvals
             FROM `tabClient Tradelines` ct
             LEFT JOIN `tabTradeline` t ON t.name = ct.tradeline
             WHERE t.card_holder = %s
-        """, [customer[0]["name"], 
+        """, [
               (now_datetime() - timedelta(days=7)).strftime('%Y-%m-%d'),
               (now_datetime() - timedelta(days=7)).strftime('%Y-%m-%d'),
-              (now_datetime() + timedelta(days=7)).strftime('%Y-%m-%d')], as_dict=True)
+              (now_datetime() + timedelta(days=7)).strftime('%Y-%m-%d'),
+              customer[0]["name"]], as_dict=True)
         
         recent_data = recent_stats[0] if recent_stats else {}
+        
+        # Calculate yearly revenue trends (last 12 months)
+        yearly_revenue = []
+        for i in range(11, -1, -1):
+            month_start = get_first_day(add_months(now_datetime(), -i))
+            month_end = get_last_day(add_months(now_datetime(), -i))
+            
+            month_revenue = frappe.db.sql("""
+                SELECT COALESCE(SUM(ct.total_amount), 0) as revenue
+                FROM `tabClient Tradelines` ct
+                INNER JOIN `tabTradeline` t ON t.name = ct.tradeline
+                WHERE t.card_holder = %s 
+                AND ct.status NOT IN ('Cancelled', 'Canceled', 'Refunded')
+                AND ct.creation >= %s AND ct.creation <= %s
+            """, [customer[0]["name"], month_start, month_end], as_dict=True)
+            
+            revenue_value = month_revenue[0]["revenue"] if month_revenue else 0
+            yearly_revenue.append({
+                "month": month_start.strftime('%b'),
+                "value": float(revenue_value)
+            })
         
         return {
             "overview": {
@@ -512,9 +569,7 @@ def get_seller_dashboard(current_user):
                 } for bank in bank_distribution
             ],
             "monthly_trends": {
-                "spot_utilization": [65, 72, 68, 75, 71, 78],  # Would need calculation
-                "revenue": [2890, 3245, 3156, 3890, 3567, 3890],  # Would need calculation
-                "new_assignments": [12, 15, 11, 18, 14, 16]  # Would need calculation
+                "revenue": yearly_revenue
             },
             "recent_activity": {
                 "new_assignments": recent_data.get("new_assignments", 0),
@@ -525,7 +580,8 @@ def get_seller_dashboard(current_user):
         }
         
     except Exception as e:
-        frappe.log_error(f"Seller dashboard error: {str(e)}")
+        frappe.throw(f"Seller dashboard error: {str(e)}")
+        # Return structure with default values instead of empty dict
         return {
             "overview": {
                 "total_tradelines": 0,
@@ -558,9 +614,7 @@ def get_seller_dashboard(current_user):
             },
             "bank_distribution": [],
             "monthly_trends": {
-                "spot_utilization": [0, 0, 0, 0, 0, 0],
-                "revenue": [0, 0, 0, 0, 0, 0],
-                "new_assignments": [0, 0, 0, 0, 0, 0]
+                "revenue": []
             },
             "recent_activity": {
                 "new_assignments": 0,
@@ -743,34 +797,53 @@ def get_broker_dashboard(current_user):
         # Get broker's managed clients
         client_stats = frappe.db.sql("""
             SELECT 
-                COUNT(*) as total_clients,
-                COUNT(*) as active_clients
+                COUNT(*) as total_clients
             FROM `tabCustomer`
             WHERE account_manager = %s
         """, [current_user], as_dict=True)
         
         client_data = client_stats[0] if client_stats else {}
         
+        # Get active clients (those with active client tradelines)
+        active_clients_stats = frappe.db.sql("""
+            SELECT 
+                COUNT(DISTINCT ct.customer) as active_clients
+            FROM `tabClient Tradelines` ct
+            LEFT JOIN `tabCustomer` c ON c.name = ct.customer
+            WHERE c.account_manager = %s AND ct.status = 'Active'
+        """, [current_user], as_dict=True)
+        
+        active_clients_count = active_clients_stats[0]["active_clients"] if active_clients_stats else 0
+        
         # Commission earnings from managed clients
         commission_stats = frappe.db.sql("""
             SELECT 
-                COALESCE(SUM(pr.total_amount * 0.1), 0) as total_commission_earned,
-                COALESCE(SUM(CASE WHEN pr.creation >= %s THEN pr.total_amount * 0.1 ELSE 0 END), 0) as monthly_commission
+                COALESCE(SUM(ct.total_amount * 0.1), 0) as total_commission_earned,
+                COALESCE(SUM(CASE WHEN ct.creation >= %s THEN ct.total_amount * 0.1 ELSE 0 END), 0) as monthly_commission
             FROM `tabClient Tradelines` ct
-            LEFT JOIN `tabPayment Request` pr ON pr.name = ct.payment_request
             LEFT JOIN `tabCustomer` c ON c.name = ct.customer
-            WHERE c.account_manager = %s AND pr.status = 'Completed'
-        """, [current_user, get_first_day(now_datetime())], as_dict=True)
+            WHERE c.account_manager = %s AND ct.status NOT IN ('Cancelled', 'Canceled', 'Refunded')
+        """, [get_first_day(now_datetime()), current_user], as_dict=True)
         
         commission_data = commission_stats[0] if commission_stats else {}
+        client_satisfaction = frappe.db.sql(""" 
+            SELECT AVG(rating) as avg_rating
+            FROM `tabTestimonial` cf
+            RIGHT JOIN `tabCustomer` c ON c.email_id = cf.custom_email
+            WHERE c.account_manager = %s
+        """, [current_user], as_dict=True)
+        if client_satisfaction and client_satisfaction[0]["avg_rating"]:
+            client_satisfaction = round(client_satisfaction[0]["avg_rating"], 2)
+        else:
+            client_satisfaction = 0.0
         
         return {
             "overview": {
                 "total_clients": client_data.get("total_clients", 0),
-                "active_clients": client_data.get("active_clients", 0),
+                "active_clients": active_clients_count,
                 "total_commission_earned": round(commission_data.get("total_commission_earned", 0), 2),
                 "monthly_commission": round(commission_data.get("monthly_commission", 0), 2),
-                "client_satisfaction": 4.8  # Would need calculation from feedback/ratings
+                "client_satisfaction": client_satisfaction
             }
         }
         
@@ -800,8 +873,8 @@ def get_monthly_trends():
             
             # New users count
             user_count = frappe.db.count("User", filters={
-                "user_type": "Website User",
-                "creation": ["between", [month_start, month_end]]
+                "creation": ["between", [month_start, month_end]],
+                "name": ["!=", "Guest"]
             })
             new_users.append(user_count)
             
@@ -836,8 +909,8 @@ def get_yearly_trends():
             
             # New users count
             user_count = frappe.db.count("User", filters={
-                "user_type": "Website User",
-                "creation": ["between", [month_start, month_end]]
+                "creation": ["between", [month_start, month_end]],
+                "name": ["!=", "Guest"]
             })
             new_users.append(user_count)
             
