@@ -3,9 +3,12 @@ import frappe
 from rockettradeline.api.auth import jwt_required,get_authenticated_user
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_notifications(limit=20):
+def get_notifications(limit=20, start=0, sort=None):
+	from rockettradeline.api.utils import parse_sort_param
+	order_by = parse_sort_param(sort)
+	
 	notifications = frappe.db.get_list(
-		"Notification Log", fields=["*"], filters={"read": 0, "for_user": get_authenticated_user()}, limit=limit, order_by="modified desc"
+		"Notification Log", fields=["*"], filters={"read": 0, "for_user": get_authenticated_user()}, limit=limit, start=start, order_by=order_by
 	)
 
 	return dict(notifications=notifications or [])

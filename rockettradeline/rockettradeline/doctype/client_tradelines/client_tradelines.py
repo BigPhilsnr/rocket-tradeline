@@ -402,16 +402,19 @@ class ClientTradelines(Document):
             if hasattr(au_customer_doc, 'tax_id') and au_customer_doc.tax_id:
                 au_ssn_last_4 = str(au_customer_doc.tax_id)[-4:] if len(str(au_customer_doc.tax_id)) >= 4 else "XXXX"
             
-            # Calculate year opened from tradeline age
-            from datetime import datetime
-            current_year = datetime.now().year
-            year_opened = current_year - (tradeline_doc.age_year or 0)
+            # Year opened is stored directly on the tradeline (age_year field is labeled "Year")
+            year_opened = tradeline_doc.age_year or ""
             
-            # Format closing date (MM/DD format)
+            # closing_date is the day-of-month the statement closes; combine with the
+            # current month/year (clamped to the last valid day of the month) to format MM/DD
             closing_date = "MM/DD"
             if tradeline_doc.closing_date:
-                from frappe.utils import formatdate
-                closing_date = formatdate(tradeline_doc.closing_date, "MM/dd")
+                import calendar
+                from datetime import date
+                today = date.today()
+                last_day = calendar.monthrange(today.year, today.month)[1]
+                day = min(int(tradeline_doc.closing_date), last_day)
+                closing_date = date(today.year, today.month, day).strftime("%m/%d")
             
             # Calculate payment amount (unit price for this client tradeline)
             payment_amount = f"{float(self.unit_price or 0):.2f}"
@@ -423,11 +426,11 @@ class ClientTradelines(Document):
                 'au_last_initial': au_last_initial,
                 'au_dob': au_dob,
                 'au_ssn_last_4': au_ssn_last_4,
-                'year_opened':tradeline_doc.age_year,
-                'bank_name':  tradeline_doc.bank,
+                'year_opened': year_opened,
+                'bank_name': bank_doc.bank_name if bank_doc else tradeline_doc.bank,
                 'credit_limit': f"{float(tradeline_doc.credit_limit or 0):,.0f}",
                 'closing_date': closing_date,
-                'payment_amount': tradeline_doc.commission,
+                'payment_amount': payment_amount,
                 'cardholder_login_link': 'https://www.rockettradeline.com/seller/purchased-tradelines'
             }
             
@@ -507,16 +510,19 @@ class ClientTradelines(Document):
             if hasattr(au_customer_doc, 'tax_id') and au_customer_doc.tax_id:
                 au_ssn_last_4 = str(au_customer_doc.tax_id)[-4:] if len(str(au_customer_doc.tax_id)) >= 4 else "XXXX"
             
-            # Calculate year opened from tradeline age
-            from datetime import datetime
-            current_year = datetime.now().year
-            year_opened = current_year - (tradeline_doc.age_year or 0)
+            # Year opened is stored directly on the tradeline (age_year field is labeled "Year")
+            year_opened = tradeline_doc.age_year or ""
             
-            # Format closing date (MM/DD format)
+            # closing_date is the day-of-month the statement closes; combine with the
+            # current month/year (clamped to the last valid day of the month) to format MM/DD
             closing_date = "MM/DD"
             if tradeline_doc.closing_date:
-                from frappe.utils import formatdate
-                closing_date = formatdate(tradeline_doc.closing_date, "MM/dd")
+                import calendar
+                from datetime import date
+                today = date.today()
+                last_day = calendar.monthrange(today.year, today.month)[1]
+                day = min(int(tradeline_doc.closing_date), last_day)
+                closing_date = date(today.year, today.month, day).strftime("%m/%d")
             
             # Calculate payment amount (unit price for this client tradeline)
             payment_amount = f"{float(self.unit_price or 0):.2f}"
@@ -528,11 +534,11 @@ class ClientTradelines(Document):
                 'au_last_initial': au_last_initial,
                 'au_dob': au_dob,
                 'au_ssn_last_4': au_ssn_last_4,
-                'year_opened':tradeline_doc.age_year,
-                'bank_name':  tradeline_doc.bank,
+                'year_opened': year_opened,
+                'bank_name': bank_doc.bank_name if bank_doc else tradeline_doc.bank,
                 'credit_limit': f"{float(tradeline_doc.credit_limit or 0):,.0f}",
                 'closing_date': closing_date,
-                'payment_amount': tradeline_doc.commission,
+                'payment_amount': payment_amount,
                 'cardholder_login_link': 'https://www.rockettradeline.com/seller/purchased-tradelines'
             }
             
@@ -754,7 +760,7 @@ class ClientTradelines(Document):
 
             result = send_email_from_template(
                 template_name='Active Status Notification',
-                recipients=[recipient, "philmaxsnr@gmail.com"],
+                recipients=[recipient],
                 context=context
             )
             
@@ -800,10 +806,8 @@ class ClientTradelines(Document):
             # Get bank information
             bank_doc = frappe.get_doc("Tradeline Bank", tradeline_doc.bank) if tradeline_doc.bank else None
             
-            # Calculate year opened from tradeline age
-            from datetime import datetime
-            current_year = datetime.now().year
-            year_opened = current_year - (tradeline_doc.age_year or 0)
+            # Year opened is stored directly on the tradeline (age_year field is labeled "Year")
+            year_opened = tradeline_doc.age_year or ""
             
             # Get customer name
             customer_full_name = customer_doc.customer_name or "Customer"

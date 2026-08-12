@@ -27,8 +27,53 @@ class TradelineCart(Document):
     def before_save(self):
         """Update calculations before saving"""
         self.modified_at = frappe.utils.now()
+        
+        # Check if items have changed (added/removed) and clear discount if so
+        self.check_and_clear_discount_on_item_change()
+        
         self.calculate_totals()
         self.validate_cart_items()
+    
+    def check_and_clear_discount_on_item_change(self):
+        """Clear discount code if cart items have changed"""
+        if not self.discount_code:
+            return
+        
+        # Get the old document to compare items
+        if self.is_new():
+            return
+        
+        try:
+            old_doc = self.get_doc_before_save()
+            if not old_doc:
+                return
+            
+            # Get current and old item tradelines
+            current_tradelines = set(item.tradeline for item in self.items)
+            old_tradelines = set(item.tradeline for item in old_doc.items) if old_doc.items else set()
+            
+            # Check if items have changed (added or removed)
+            items_changed = current_tradelines != old_tradelines
+            
+            if items_changed:
+                # Clear the discount code
+                self.clear_discount_code_internal()
+                frappe.msgprint(f"Discount code '{self.discount_code_value or self.discount_code}' has been removed because cart items changed. Please re-apply if still valid.", alert=True)
+        except Exception as e:
+            frappe.log_error(f"Error checking discount on item change: {str(e)}", "Cart Discount Check")
+    
+    def clear_discount_code_internal(self):
+        """Internal method to clear discount code without saving"""
+        if self.discount_code:
+            # Delete the usage record
+            frappe.db.delete('Discount Code Usage', {
+                'cart_id': self.name,
+                'discount_code': self.discount_code
+            })
+        
+        self.discount_amount = 0
+        self.discount_code = None
+        self.discount_code_value = None
         
     def on_update(self):
         """Hook to send email on status change"""
@@ -598,3 +643,8 @@ def cleanup_expired_carts():
         cart.save()
     
     return {'expired_carts_count': len(expired_carts)}
+
+@frappe.whitelist(allow_guest=True)
+def trigger_sentry_test():
+    """Test endpoint to verify Sentry error reporting"""
+    raise RuntimeError("Sentry test error - this should appear in Sentry dashboard")

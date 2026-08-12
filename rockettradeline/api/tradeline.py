@@ -44,11 +44,14 @@ def recalculate_tradeline_spots(tradeline_id=None):
 # Tradeline APIs
 
 @frappe.whitelist(allow_guest=True)
-def get_tradelines(limit=20, start=0, search=None, filters=None):
+def get_tradelines(limit=20, start=0, search=None, filters=None, sort=None):
     """
     Get list of tradelines
     """
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort)
+        
         query_filters = {"status": "Active"}
         
         # Convert limit and start to integers
@@ -118,7 +121,7 @@ def get_tradelines(limit=20, start=0, search=None, filters=None):
                 t.credit_utilization_rate, t.status
                 FROM `tabTradeline` t
                 WHERE {where_clause}
-                ORDER BY t.creation DESC
+                ORDER BY t.{order_by}
                 LIMIT %(limit)s OFFSET %(start)s"""
             tradelines = frappe.db.sql(tradelines_query, sql_values, as_dict=True)
         else:
@@ -133,7 +136,7 @@ def get_tradelines(limit=20, start=0, search=None, filters=None):
                        "credit_usage", "late_payment"],
                 limit=limit,
                 start=start,
-                order_by="creation desc"
+                order_by=order_by
             )
         
         # Get bank names
@@ -170,11 +173,14 @@ def get_tradelines(limit=20, start=0, search=None, filters=None):
         
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_tradelines_admin(limit=20, start=0, search=None, filters=None):
+def get_tradelines_admin(limit=20, start=0, search=None, filters=None, sort=None):
     """
     Get list of tradelines
     """
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort)
+        
         query_filters = {"status": "Active"}
         
         # Convert limit and start to integers
@@ -246,7 +252,7 @@ def get_tradelines_admin(limit=20, start=0, search=None, filters=None):
                 t.credit_utilization_rate, t.status
                 FROM `tabTradeline` t
                 WHERE {where_clause}
-                ORDER BY t.creation DESC
+                ORDER BY t.{order_by}
                 LIMIT %(limit)s OFFSET %(start)s"""
             tradelines = frappe.db.sql(tradelines_query, sql_values, as_dict=True)
         else:
@@ -260,7 +266,7 @@ def get_tradelines_admin(limit=20, start=0, search=None, filters=None):
                        "credit_utilization_rate", "status", "late_payment"],
                 limit=limit,
                 start=start,
-                order_by="creation desc"
+                order_by=order_by
             )
         
         # Get bank names
@@ -577,18 +583,21 @@ def change_tradeline_status(tradeline_id, status):
 # Supporting APIs
 
 @frappe.whitelist(allow_guest=True)
-def get_banks(limit=None, start=None):
+def get_banks(limit=None, start=None, sort=None):
     """
     Get list of banks with optional pagination
     """
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort) if sort else "bank_name asc"
+        
         # Get total count
         total_count = frappe.db.count("Tradeline Bank")
         
         # Build query parameters
         query_params = {
             "fields": ["name", "bank_name", "image", "status"],
-            "order_by": "bank_name asc"
+            "order_by": order_by
         }
         
         # Add pagination if limit and start are provided
@@ -1346,11 +1355,14 @@ def add_tradeline_comment(tradeline_name, content, comment_type="Comment"):
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_seller_tradelines(limit=20, start=0, search=None, filters=None):
+def get_seller_tradelines(limit=20, start=0, search=None, filters=None, sort=None):
     """
     Get list of tradelines
     """
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort)
+        
         user = get_authenticated_user()
         customer = frappe.db.get_value("Customer", {"email_id": user}, "name")
         query_filters = dict(card_holder=customer)
@@ -1387,7 +1399,7 @@ def get_seller_tradelines(limit=20, start=0, search=None, filters=None):
                    "credit_utilization_rate", "status", "late_payment"],
             limit=limit,
             start=start,
-            order_by="creation desc"
+            order_by=order_by
         )
         
         # Get bank names

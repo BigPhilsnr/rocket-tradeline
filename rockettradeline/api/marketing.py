@@ -334,12 +334,15 @@ def check_newsletter_subscription(email):
 
 @frappe.whitelist(allow_guest=False)
 @jwt_required()
-def get_newsletter_subscribers(limit=50, start=0):
+def get_newsletter_subscribers(limit=50, start=0, sort=None):
     """
     Get list of newsletter subscribers (Admin only)
     Requires authentication
     """
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort)
+        
         # Check if user has permission to view email groups
         user = get_authenticated_user()
         if not is_administrator(user):
@@ -357,7 +360,7 @@ def get_newsletter_subscribers(limit=50, start=0):
                 "unsubscribed": 0
             },
             fields=["email", "creation", "modified"],
-            order_by="creation desc",
+            order_by=order_by,
             limit_start=start,
             limit_page_length=limit
         )

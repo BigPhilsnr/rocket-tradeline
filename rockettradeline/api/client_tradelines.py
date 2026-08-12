@@ -8,9 +8,12 @@ from rockettradeline.rockettradeline.doctype.email_template_custom.email_templat
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_client_tradelines(status=None, limit=20, start=0, customer=None, tradeline=None):
+def get_client_tradelines(status=None, limit=20, start=0, customer=None, tradeline=None, sort=None):
     """Get client tradelines based on user permissions"""
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort)
+        
         current_user = get_authenticated_user()
         if not current_user or current_user == "Guest":
             frappe.throw(_("Authentication required"))
@@ -123,7 +126,7 @@ def get_client_tradelines(status=None, limit=20, start=0, customer=None, tradeli
             LEFT JOIN `tabTradeline` t ON ct.tradeline = t.name
             LEFT JOIN `tabTradeline Bank` tb ON t.bank = tb.name
             {where_clause}
-            ORDER BY modified DESC
+            ORDER BY {order_by}
             LIMIT %s OFFSET %s
         """
         
@@ -206,9 +209,12 @@ def swap(client_tradeline, tradeline):
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_my_client_tradelines(status=None, limit=20, start=0):
+def get_my_client_tradelines(status=None, limit=20, start=0, sort=None):
     """Get current user's client tradelines only"""
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort)
+        
         current_user = get_authenticated_user()
         if not current_user or current_user == "Guest":
             frappe.throw(_("Authentication required"))
@@ -302,7 +308,7 @@ def get_my_client_tradelines(status=None, limit=20, start=0):
             LEFT JOIN `tabTradeline` t ON ct.tradeline = t.name
             LEFT JOIN `tabTradeline Bank` tb ON t.bank = tb.name
             {where_clause}
-            ORDER BY ct.modified DESC
+            ORDER BY ct.{order_by}
             LIMIT %s OFFSET %s
         """
         
@@ -854,9 +860,12 @@ def update_client_tradeline_status(tradeline_id, new_status=None, notes=None, co
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_client_tradelines_for_sellers(status=None, limit=20, start=0):
+def get_client_tradelines_for_sellers(status=None, limit=20, start=0, sort=None):
     """Get client tradelines for the current user as cardholder/seller"""
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort)
+        
         current_user = get_authenticated_user()
         if not current_user or current_user == "Guest":
             frappe.throw(_("Authentication required"))
@@ -943,7 +952,7 @@ def get_client_tradelines_for_sellers(status=None, limit=20, start=0):
             LEFT JOIN `tabTradeline Bank` tb ON t.bank = tb.name
             LEFT JOIN `tabCustomer` ch ON t.card_holder = ch.name
             {where_clause}
-            ORDER BY ct.modified DESC
+            ORDER BY ct.{order_by}
             LIMIT %s OFFSET %s
         """
         

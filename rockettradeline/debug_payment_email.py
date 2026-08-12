@@ -102,3 +102,38 @@ def debug_payment_email_function():
         print(f"Debug test failed: {str(e)}")
         frappe.log_error(f"Debug payment email error: {str(e)}", "Debug Payment Email Error")
         return False
+
+
+def test_updated_payment_notification(payment_request_name=None):
+    """
+    Trigger the real (fixed) send_payment_request_notification_email() against an
+    actual Payment Request so the resulting Email Queue entry can be inspected to
+    confirm the tradeline_info context is now populated correctly.
+    """
+    from rockettradeline.api.payment import send_payment_request_notification_email
+
+    if not payment_request_name:
+        payment_request_name = frappe.db.get_value(
+            "Payment Request", {}, "name", order_by="creation desc"
+        )
+
+    print(f"Using Payment Request: {payment_request_name}")
+    payment_request_doc = frappe.get_doc("Payment Request", payment_request_name)
+
+    queue_before = frappe.db.count("Email Queue")
+    result = send_payment_request_notification_email(payment_request_doc)
+    queue_after = frappe.db.count("Email Queue")
+
+    print(f"send_payment_request_notification_email returned: {result}")
+    print(f"Email Queue rows added: {queue_after - queue_before}")
+
+    latest = frappe.db.sql(
+        """
+        SELECT name, creation FROM `tabEmail Queue`
+        ORDER BY creation DESC LIMIT 1
+        """,
+        as_dict=True,
+    )
+    if latest:
+        print(f"Latest Email Queue entry: {latest[0].name} at {latest[0].creation}")
+    return result

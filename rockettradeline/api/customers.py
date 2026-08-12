@@ -7,9 +7,12 @@ from .utils import is_administrator
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_customers(customer_type=None, is_seller=None, is_buyer=None, status=None, limit=50, start=0, search=None, role_profile_name=None):
+def get_customers(customer_type=None, is_seller=None, is_buyer=None, status=None, limit=50, start=0, search=None, role_profile_name=None, sort=None):
     """Get customers list (Admin only)"""
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort)
+        
         current_user = get_authenticated_user()
         if not current_user or current_user == "Guest":
             frappe.throw(_("Authentication required"))
@@ -104,7 +107,7 @@ def get_customers(customer_type=None, is_seller=None, is_buyer=None, status=None
             FROM `tabCustomer` c
             LEFT JOIN `tabUser` u ON u.name = c.email_id
             {where_clause}
-            ORDER BY c.modified DESC
+            ORDER BY c.{order_by}
             LIMIT {int(limit)} OFFSET {int(start)}
         """
         

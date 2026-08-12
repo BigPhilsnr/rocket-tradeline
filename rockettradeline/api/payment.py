@@ -22,7 +22,35 @@ def send_payment_request_notification_email(payment_request_doc):
                 customer_name = customer_doc.customer_name
             except:
                 customer_name = payment_request_doc.customer_email
-        
+
+        # Build a consolidated tradeline info block from the cart items
+        tradeline_info = "N/A"
+        try:
+            cart = frappe.get_doc("Tradeline Cart", payment_request_doc.cart_id)
+            lines = []
+            for item in cart.get("items", []):
+                tradeline_doc = frappe.get_doc("Tradeline", item.tradeline) if item.tradeline else None
+                bank_name = "N/A"
+                year_opened = "N/A"
+                credit_limit = "N/A"
+                if tradeline_doc:
+                    bank_doc = frappe.get_doc("Tradeline Bank", tradeline_doc.bank) if tradeline_doc.bank else None
+                    bank_name = bank_doc.bank_name if bank_doc else (tradeline_doc.bank or "N/A")
+                    year_opened = tradeline_doc.age_year or "N/A"
+                    credit_limit = f"${float(tradeline_doc.credit_limit or 0):,.0f}"
+                lines.append(
+                    f"<strong>{item.tradeline_name or item.tradeline}</strong> &mdash; "
+                    f"Bank: {bank_name}, Year Opened: {year_opened}, Credit Limit: {credit_limit}, "
+                    f"Qty: {item.quantity or 1}, Amount: ${float(item.amount or 0):.2f}"
+                )
+            if lines:
+                tradeline_info = "<br>".join(lines)
+        except Exception:
+            frappe.log_error(
+                f"Error building tradeline_info for payment request {payment_request_doc.name}",
+                "Payment Request Email Error"
+            )
+
         # Prepare context for the email template
         context = {
             'payment_request_id': payment_request_doc.name,
@@ -35,7 +63,8 @@ def send_payment_request_notification_email(payment_request_doc):
             'status': payment_request_doc.status,
             'created_at': str(getattr(payment_request_doc, 'created_at', payment_request_doc.creation)),
             'payment_request_url': f"https://www.rockettradeline.com",
-            'admin_portal_url': 'https://www.rockettradeline.com'
+            'admin_portal_url': 'https://www.rockettradeline.com',
+            'tradeline_info': tradeline_info
         }
         
         # Send email using Email Template Custom
@@ -440,9 +469,12 @@ def approve_manual_payment(payment_request_id, approval_action="approve", reject
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_manual_payment_requests(status=None, limit=20, start=0, name=None):
+def get_manual_payment_requests(status=None, limit=20, start=0, name=None, sort=None):
     """Get manual payment requests (Admin only)"""
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort)
+        
         current_user = get_authenticated_user()
         if not current_user or current_user == "Guest":
             return {"success": False, "error": "Authentication required"}
@@ -470,7 +502,7 @@ def get_manual_payment_requests(status=None, limit=20, start=0, name=None):
                 "created_by", "created_at", "approved_by", "approved_at", "rejection_reason", 
                 "proof_of_payment"
             ],
-            order_by="created_at desc",
+            order_by=order_by,
             limit_start=start,
             limit_page_length=limit
         )
@@ -504,9 +536,12 @@ def get_manual_payment_requests(status=None, limit=20, start=0, name=None):
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_my_manual_payments(limit=20, start=0):
+def get_my_manual_payments(limit=20, start=0, sort=None):
     """Get current user's manual payment requests"""
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort)
+        
         current_user = get_authenticated_user()
         if not current_user or current_user == "Guest":
             return {"success": False, "error": "Authentication required"}
@@ -526,7 +561,7 @@ def get_my_manual_payments(limit=20, start=0):
                 "customer", "customer_name", "status", "approval_status", "created_at", 
                 "approved_by", "approved_at", "rejection_reason", "proof_of_payment"
             ],
-            order_by="created_at desc",
+            order_by=order_by,
             limit_start=start,
             limit_page_length=limit
         )

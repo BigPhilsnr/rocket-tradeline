@@ -767,7 +767,8 @@ def checkout_cart(cart_id=None, address_id=None, buyer=None):
         if buyer:
             if current_user != frappe.get_value('Customer', {'email_id': buyer}, 'account_manager') and not is_administrator(current_user)  :
                 frappe.response.http_status_code = 417
-                return {'success': False, 'error': f'You are not the account manager for this buyer {frappe.get_value('Customer', {'email_id': buyer}, 'account_manager')} != {current_user}'}
+                account_mgr = frappe.get_value('Customer', {'email_id': buyer}, 'account_manager')
+                return {'success': False, 'error': f'You are not the account manager for this buyer {account_mgr} != {current_user}'}
         #update return with correct status code 417 instead of success false
 
         current_user = buyer if buyer else current_user
@@ -853,9 +854,12 @@ def checkout_cart(cart_id=None, address_id=None, buyer=None):
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_carts(limit=20, start=0, status=None, user_id=None, search=None, order_by='creation desc'):
+def get_carts(limit=20, start=0, status=None, user_id=None, search=None, sort=None):
     """Get list of carts for current user or all carts if admin"""
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort)
+        
         current_user = get_authenticated_user()
         if not current_user:
             return {'success': False, 'error': 'Authentication required'}
@@ -1024,11 +1028,11 @@ def get_carts(limit=20, start=0, status=None, user_id=None, search=None, order_b
 
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
-def get_cart_history(limit=20, start=0):
+def get_cart_history(limit=20, start=0, sort=None):
     """Get user's cart history (legacy function - now calls get_carts)"""
     try:
         # This is now a wrapper around the more comprehensive get_carts function
-        return get_carts(limit=limit, start=start, order_by='creation desc')
+        return get_carts(limit=limit, start=start, sort=sort)
         
     except Exception as e:
         frappe.log_error(f"Get cart history error: {str(e)}", "Cart API Error")

@@ -306,11 +306,14 @@ def update_website_settings(**kwargs):
 # FAQ APIs
 
 @frappe.whitelist(allow_guest=True)
-def get_faqs(category=None, limit=50, start=0):
+def get_faqs(category=None, limit=50, start=0, sort=None):
     """
     Get list of FAQs
     """
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort) if sort else "sort_order asc, creation asc"
+        
         # Convert limit and start to integers with validation
         try:
             limit = int(limit) if limit else 50
@@ -332,7 +335,7 @@ def get_faqs(category=None, limit=50, start=0):
             fields=["name", "question", "answer", "category", "sort_order"],
             limit=limit,
             start=start,
-            order_by="sort_order asc, creation asc"
+            order_by=order_by
         )
         
         # Calculate pagination
@@ -361,7 +364,8 @@ def get_faqs(category=None, limit=50, start=0):
             "message": str(e)
         }
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@jwt_required()
 def create_faq(question, answer, category=None, sort_order=0):
     """
     Create new FAQ
@@ -803,11 +807,14 @@ def bulk_delete_faqs(faq_ids):
 # Testimonial APIs
 
 @frappe.whitelist(allow_guest=True)
-def get_testimonials(limit=20, start=0):
+def get_testimonials(limit=20, start=0, sort=None):
     """
     Get list of testimonials
     """
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort) if sort else "sort_order asc, creation desc"
+        
         # Convert limit and start to integers with validation
         try:
             limit = int(limit) if limit else 20
@@ -827,7 +834,7 @@ def get_testimonials(limit=20, start=0):
                    "customer_image", "sort_order"],
             limit=limit,
             start=start,
-            order_by="sort_order asc, creation desc"
+            order_by=order_by
         )
         
         # Calculate pagination

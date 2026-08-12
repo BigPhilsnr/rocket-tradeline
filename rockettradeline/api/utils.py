@@ -109,6 +109,36 @@ def sanitize_search_term(term):
     # Limit length
     return sanitized[:100]
 
+def parse_sort_param(sort=None):
+    """
+    Parse sort parameter and return order_by string
+    Default: creation desc
+    Format: field_name asc|desc or field_name (defaults to desc)
+    Examples: 
+        - "creation desc" 
+        - "modified asc"
+        - "name" (will be "name desc")
+    """
+    if not sort:
+        return "creation desc"
+    
+    # Sanitize input
+    sort = str(sort).strip()
+    
+    # Split into field and direction
+    parts = sort.split()
+    field = parts[0] if parts else "creation"
+    direction = parts[1].lower() if len(parts) > 1 else "desc"
+    
+    # Validate direction
+    if direction not in ["asc", "desc"]:
+        direction = "desc"
+    
+    # Sanitize field name (allow only alphanumeric and underscore)
+    field = re.sub(r'[^\w.]', '', field)
+    
+    return f"{field} {direction}"
+
 def get_pagination_info(total_count, limit, start):
     """
     Get pagination information

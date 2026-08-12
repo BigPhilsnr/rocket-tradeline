@@ -200,7 +200,7 @@ def submit_feedback(question_1_why_buying, question_2_importance, question_3_cre
 
 @frappe.whitelist()
 @jwt_required()
-def get_feedback_submissions(limit=50, start=0, status=None, search=None):
+def get_feedback_submissions(limit=50, start=0, status=None, search=None, sort=None):
     """
     Get feedback submissions (Admin only)
     
@@ -209,11 +209,15 @@ def get_feedback_submissions(limit=50, start=0, status=None, search=None):
         start (int): Starting offset
         status (str): Filter by status
         search (str): Search term for name/email
+        sort (str): Sort parameter (e.g., 'modified desc')
     
     Returns:
         dict: List of feedback submissions
     """
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort)
+        
         # Check permissions
         if not frappe.has_permission("Tradeline Feedback", "read"):
             return {
@@ -247,7 +251,7 @@ def get_feedback_submissions(limit=50, start=0, status=None, search=None):
                 submission_date, status, source, submitted_by_user, ip_address
             FROM `tabTradeline Feedback`
             WHERE 1=1 {conditions}
-            ORDER BY submission_date DESC
+            ORDER BY {order_by}
             LIMIT %(start)s, %(limit)s
         """, {
             'start': start,

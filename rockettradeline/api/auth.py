@@ -2205,12 +2205,15 @@ def broker_create_client(email, full_name, phone=None, ssn=None,
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
 @require_roles("System Manager", "Administrator")
-def get_users(limit=20, start=0, search=None):
+def get_users(limit=20, start=0, search=None, sort=None):
     """
     Get list of users with customer information (Admin only)
     Requires System Manager or Administrator role
     """
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort)
+        
         filters = {}
         if search:
             filters["email"] = ["like", f"%{search}%"]
@@ -2220,7 +2223,7 @@ def get_users(limit=20, start=0, search=None):
             fields=["name", "email", "full_name", "enabled", "user_type", "creation", "phone"],
             limit=limit,
             start=start,
-            order_by="creation desc"
+            order_by=order_by
         )
         
         # Add customer information for each user
@@ -2250,9 +2253,12 @@ def get_users(limit=20, start=0, search=None):
 @frappe.whitelist(allow_guest=True)
 @jwt_required()
 @require_roles("Tradeline Broker", "Administrator", "System Manager")
-def get_broker_customers(limit=50, start=0, search=None):
+def get_broker_customers(limit=50, start=0, search=None, sort=None):
     """Return customers where account_manager is the logged-in broker"""
     try:
+        from rockettradeline.api.utils import parse_sort_param
+        order_by = parse_sort_param(sort)
+        
         broker = get_authenticated_user()
         if not broker or broker == "Guest":
             frappe.local.response.http_status_code = 401
@@ -2278,7 +2284,7 @@ def get_broker_customers(limit=50, start=0, search=None):
             fields=["name", "customer_name", "email_id", "mobile_no",  "creation"],
             limit=limit,
             start=start,
-            order_by="creation desc"
+            order_by=order_by
         )
 
         # Calculate pagination
